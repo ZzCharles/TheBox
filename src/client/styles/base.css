@@ -1,0 +1,90 @@
+:root {
+  --bg-deep: #0b0d12;
+  --surface: #171b26;
+  --dot: #ffc24b;
+  --dot-glow: #ffb020;
+  --text: #e8eaf0;
+  --text-dim: #7a8296;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(120% 90% at 50% 0%, #131722 0%, var(--bg-deep) 70%);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+#app {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: max(1.5rem, env(safe-area-inset-top)) 1.5rem;
+}
+
+.boot {
+  text-align: center;
+  display: grid;
+  gap: 1.25rem;
+  justify-items: center;
+}
+
+.boot h1 {
+  font-size: clamp(3rem, 18vw, 5rem);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--dot);
+  text-shadow: 0 0 32px rgb(255 176 32 / 35%);
+}
+
+.tag {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0.35rem 1.5rem;
+  background: var(--surface);
+  padding: 1rem 1.5rem;
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 50%);
+  font-size: 0.95rem;
+}
+
+dt {
+  color: var(--text-dim);
+  text-align: right;
+}
+
+dd {
+  font-weight: 600;
+  text-align: left;
+}
+
+.status {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.status.ok {
+  color: #a3e635;
+}

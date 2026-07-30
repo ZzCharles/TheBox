@@ -1,0 +1,33 @@
+// Client + shared. The worker has its own config (tsconfig.worker.json) because
+// Cloudflare's Workers runtime types and the DOM lib define conflicting globals.
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+
+    // "node" is here so the *.test.ts files (node:test, node:assert) typecheck.
+    "types": ["vite/client", "node"],
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+
+    // noUncheckedIndexedAccess is deliberately OFF: the rules engine and the
+    // renderer index typed arrays constantly, and `number | undefined` there
+    // buys nothing but a forest of non-null assertions.
+
+    // erasableSyntaxOnly keeps src/shared runnable by `node --test` directly,
+    // via Node's built-in type stripping. That is why we have zero test deps.
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/client", "src/shared", "vite.config.ts"]
+}

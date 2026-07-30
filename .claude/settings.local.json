@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(git --version)",
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell($p = @\\(\"$env:ProgramFiles\\\\nodejs\\\\node.exe\",\"${env:ProgramFiles\\(x86\\)}\\\\nodejs\\\\node.exe\",\"$env:LOCALAPPDATA\\\\Programs\\\\nodejs\\\\node.exe\"\\); foreach \\($x in $p\\) { if \\(Test-Path $x\\) { \"FOUND: $x\"; & $x --version } }; \"--- machine PATH ---\"; [Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) -split ';' | Where-Object { $_ -match 'node' })",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; git init -b main 2>&1 | Out-String; npm install -D vite@latest typescript@latest wrangler@latest \"@cloudflare/vite-plugin@latest\" \"@cloudflare/workers-types@latest\" --silent 2>&1 | Select-Object -Last 20)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm install partyserver@latest --silent 2>&1 | Select-Object -Last 10; \"--- installed ---\"; node -e \"const p=require\\('./package.json'\\);console.log\\(JSON.stringify\\({d:p.dependencies,dd:p.devDependencies},null,2\\)\\)\")",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 60)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npx wrangler types 2>&1 | Select-Object -Last 25)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm uninstall @cloudflare/workers-types --silent 2>&1 | Out-Null; npm install -D \"@types/node@latest\" --silent 2>&1 | Out-Null; npx wrangler types 2>&1 | Select-Object -Last 3; \"=== typecheck client+shared ===\"; npx tsc -p tsconfig.json --noEmit 2>&1 | Select-Object -Last 25)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run check 2>&1 | Select-Object -Last 30)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run build 2>&1 | Select-Object -Last 30)"
+    ]
+  }
+}
