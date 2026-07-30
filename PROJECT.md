@@ -2,8 +2,8 @@
 
 > **Working title:** BOX (rename pending — see Open Questions)
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M4 complete. **Next: M5 — twist mode.**
-> **Last updated:** 2026-07-30
+> **Status:** M0–M5 complete — the game is feature-complete. **Next: M6 — polish.**
+> **Last updated:** 2026-07-31
 
 ---
 
@@ -423,6 +423,11 @@ too swingy, and it made every claimed box feel provisional.)*
   It disarms automatically when your turn genuinely ends.
 - **A Wildcard rescue grants a full 12s turn, not the 6s continuation clock.** You didn't
   claim anything, so you may genuinely need think time — a rescue is not a chain.
+- **An armed Wildcard that never fires is refunded** (decided at M5). Arming spends the
+  charge, but a turn that ends without a placement — a timeout, or being parked — hands it
+  back. Paying 10 boxes and then losing it to the shot clock punishes exactly the moment
+  you were thinking hardest. `advanceTurn` does the refund, and it cannot double-refund
+  because `applyMove` always clears `armed` before advancing.
 - Broadcast to the whole room with its own sound and a toast — everyone should understand
   why someone got two lines.
 
@@ -663,8 +668,17 @@ public). Duck to 4 concurrent voices max.
       colour and the grid resizes for the new roster. **Killed the server mid-game**: both
       clients showed "Reconnecting…", kept their boards, and recovered with state intact —
       the room survived in DO storage and the alarm re-armed itself.
-- [ ] **M5 — Twist mode.** Shrinking board + warning ring. Wildcard purchase, box burning,
-      arming, and the two-lines-in-one-turn flow.
+- [x] **M5 — Twist mode.** ✅ 2026-07-31. Shrinking board with its warning ring, mode
+      selector in the lobby and hot seat, and the Wildcard shop end to end.
+      18 new tests. Verified in-browser: a full 4-player twist game where the warning
+      pulsed with **zero boxes dead**, the collapse removed exactly the 28-tile perimeter
+      and cleared 33 orphaned lines, and the score invariant held to the final frame
+      (`[6,12,14,14]` = onBoard `[6,12,6,12]` + harvested `[0,0,8,2]`). Over the network:
+      buy burned 10 boxes and dropped the score 10→0, arm spent the charge, and a
+      non-claiming line fired it — turn kept, **12.3s** on the clock rather than the 6s
+      continuation.
+      *The collapse is instant, not animated — tiles flying to the scoreboard shares code
+      with the endgame shatter and lands in M7.*
 - [ ] **M6 — Polish pass 1.** Play button + carpet-in, line/claim animations, audio,
       scoreboard, shot clock ring, full visual token pass.
 - [ ] **M7 — Endgame sequence.** Crack, flight, clacks, count-up, victory.
@@ -703,8 +717,13 @@ means debugging game logic and network logic simultaneously, which is miserable.
 
 - `rules.ts` imports nothing and touches no I/O.
 - The client never mutates game state except to draw a **pending** line.
-- `score === count(boxes visibly owned)` at all times. The shop burns real boxes to keep
-  this true; the endgame flight animation depends on it.
+- `scores[p] === (boxes on the board owned by p) + harvested[p]` at all times. The shop
+  burns real boxes rather than just decrementing a counter, and a shrink that harvests a
+  claimed tile records it in `harvested` — because that tile already flew to the scoreboard
+  and must not fly again in the endgame. Asserted after every move of a full twist game.
+- A cleared line reads as `lines[id] === 0`, exactly like an untouched one. After a collapse
+  that is **not** the same as "playable" — `canPlace` also requires a live neighbouring box.
+  Never treat `lines[id] === 0` alone as a legal move.
 - Timers are broadcast as absolute deadlines, never durations.
 - Every device-capability call is feature-detected. `navigator.vibrate` is absent on iOS.
 - Every message carries a sequence number; the client discards out-of-order/duplicate moves.

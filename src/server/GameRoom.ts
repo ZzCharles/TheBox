@@ -1,4 +1,4 @@
-import { Server, type Connection } from "partyserver";
+﻿import { Server, type Connection } from "partyserver";
 
 import {
   ANIMATION_GRACE_MS,
@@ -25,12 +25,15 @@ import {
 } from "../shared/protocol.ts";
 import {
   applyMove,
+  armWildcard,
   bench,
+  buyWildcard,
   createGame,
   currentPlayer,
   skipTurn,
   turnSecondsFor,
   unbench,
+  type BuyOutcome,
   type GameState,
 } from "../shared/rules.ts";
 import { fromSnapshot, toSnapshot } from "../shared/snapshot.ts";
@@ -164,6 +167,12 @@ export class GameRoom extends Server<Env> {
         return;
       case "move":
         await this.onMove(connection, room, msg.lineId, msg.turnSeq);
+        return;
+      case "buy":
+        await this.onWildcard(connection, room, "bought");
+        return;
+      case "arm":
+        await this.onWildcard(connection, room, "armed");
         return;
       case "wake":
         await this.onWake(connection, room);
@@ -391,14 +400,51 @@ export class GameRoom extends Server<Env> {
       claimed: outcome.claimed,
       scores: Array.from(state.scores),
       again: outcome.again,
+      wildcardFired: outcome.wildcardFired,
       gameOver: outcome.gameOver,
       winners: outcome.winners,
+      shrink: outcome.shrink,
       serverNow: Date.now(),
       turn: this.turnInfo(room, state),
     });
 
     // The results screen needs the roster and rematch votes, not just the move.
     if (outcome.gameOver) this.broadcastRoom();
+  }
+
+  /**
+   * Twist mode only. Buying burns real boxes off the board, so the whole room
+   * needs to see it — otherwise tiles would silently go grey mid-game.
+   */
+  private async onWildcard(
+    connection: Connection,
+    room: RoomState,
+    action: "bought" | "armed",
+  ) {
+    const player = this.playerFor(connection, room);
+    if (!player || !room.game || room.phase !== "playing") return;
+
+    const state = fromSnapshot(room.game);
+    const index = room.players.indexOf(player);
+    const result =
+      action === "bought" ? buyWildcard(state, index) : armWildcard(state, index);
+
+    if (!result.ok) {
+      this.fail(connection, "wildcard", result.reason);
+      return;
+    }
+
+    room.game = toSnapshot(state);
+    await this.save();
+
+    this.emit({
+      t: "wildcard",
+      playerIndex: index,
+      action,
+      burned: action === "bought" ? (result.value as BuyOutcome).burned : [],
+      charges: state.charges[index] ?? 0,
+      scores: Array.from(state.scores),
+    });
   }
 
   private async onWake(connection: Connection, room: RoomState) {
@@ -507,11 +553,18 @@ export class GameRoom extends Server<Env> {
       bench(state, index);
       room.game = toSnapshot(state);
       room.turnDeadline = deadlineFor(state);
+      // `bench()` advances the turn but deliberately does not run the shrink
+      // check; if that push crossed a collapse rotation, the next move or
+      // timeout collapses instead. Delayed by one action, never missed.
       this.emit({
         t: "skip",
         playerIndex: index,
+        reason: "disconnect",
         benched: true,
         paused: state.paused,
+        gameOver: false,
+        winners: [],
+        shrink: null,
         serverNow: Date.now(),
         turn: this.turnInfo(room, state),
       });
@@ -529,12 +582,23 @@ export class GameRoom extends Server<Env> {
       if (result.ok) {
         changed = true;
         room.game = toSnapshot(state);
-        room.turnDeadline = deadlineFor(state);
+        // A timeout can collapse the ring that ends the game.
+        if (result.value.gameOver) {
+          room.phase = "results";
+          room.turnDeadline = null;
+          room.players.forEach((p) => (p.ready = false));
+        } else {
+          room.turnDeadline = deadlineFor(state);
+        }
         this.emit({
           t: "skip",
           playerIndex: result.value.playerIndex,
+          reason: "timeout",
           benched: result.value.benched,
           paused: result.value.paused,
+          gameOver: result.value.gameOver,
+          winners: result.value.winners,
+          shrink: result.value.shrink,
           serverNow: Date.now(),
           turn: this.turnInfo(room, state),
         });

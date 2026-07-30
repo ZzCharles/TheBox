@@ -14,11 +14,14 @@ import {
   CONTINUATION_TURN_SECONDS,
   MAX_WILDCARD_CHARGES,
   MISSED_TURNS_TO_BENCH,
+  SHRINK_INTERVAL_ROTATIONS,
   TURN_SECONDS,
   WILDCARD_COST,
+  shrinkArmFraction,
 } from "./constants.ts";
 import {
   boxCol,
+  boxId,
   boxLineIds,
   boxRow,
   isValidLineId,
@@ -37,6 +40,14 @@ export const SPENT = -2;
 /** Removed by the shrinking board. Not playable, worth nothing. */
 export const DEAD = -3;
 
+/** Inclusive box coordinates of the still-playable area. Shrinks in twist mode. */
+export interface Bounds {
+  r0: number;
+  c0: number;
+  r1: number;
+  c1: number;
+}
+
 export interface GameState {
   mode: Mode;
   /** Box grid is n x n. */
@@ -48,6 +59,13 @@ export interface GameState {
   boxes: Int8Array;
 
   scores: Int32Array;
+  /**
+   * Boxes taken off the board early by a shrink, per player. They already flew
+   * to the scoreboard, so they must not fly again in the endgame.
+   *
+   * INVARIANT: `scores[p] === (boxes on the board owned by p) + harvested[p]`.
+   */
+  harvested: Int32Array;
   /** Wildcard charges held, per player. */
   charges: Uint8Array;
   /** 1 = parked. Skipped in rotation, keeps score and charges. */
@@ -72,6 +90,15 @@ export interface GameState {
   rotations: number;
   turnSeq: number;
 
+  /** Playable area. Full board in simple mode; contracts in twist mode. */
+  bounds: Bounds;
+  /**
+   * Rotation index at which the outer ring collapses. `null` before the
+   * shrinking board arms. Players get one full rotation of warning, so the ring
+   * pulses red from `collapseAtRotation - 1`.
+   */
+  collapseAtRotation: number | null;
+
   phase: "playing" | "over";
   /** Populated when phase becomes "over". More than one index means a tie. */
   winners: number[];
@@ -90,6 +117,16 @@ export type RejectReason =
   | "no-charges"
   | "already-armed";
 
+export interface ShrinkOutcome {
+  /** Every box removed from play, claimed or not. */
+  removedBoxes: number[];
+  /** Claimed boxes that flew to their owner. Their points are kept. */
+  harvested: Array<{ box: number; owner: number }>;
+  /** Placed lines cleared because they no longer border a live box. */
+  removedLines: number[];
+  bounds: Bounds;
+}
+
 export interface MoveOutcome {
   playerIndex: number;
   lineId: number;
@@ -105,6 +142,8 @@ export interface MoveOutcome {
   nextTurnSeconds: number;
   gameOver: boolean;
   winners: number[];
+  /** Set when this move's turn advance triggered a ring collapse. */
+  shrink: ShrinkOutcome | null;
 }
 
 export type Result<T> =
@@ -134,6 +173,7 @@ export function createGame(opts: {
     lines: new Uint8Array(lineCount(n)),
     boxes: new Int8Array(n * n).fill(UNCLAIMED),
     scores: new Int32Array(playerCount),
+    harvested: new Int32Array(playerCount),
     charges: new Uint8Array(playerCount),
     benched: new Uint8Array(playerCount),
     missed: new Uint8Array(playerCount),
@@ -146,6 +186,8 @@ export function createGame(opts: {
     boxesRemaining: n * n,
     rotations: 0,
     turnSeq: 0,
+    bounds: { r0: 0, c0: 0, r1: n - 1, c1: n - 1 },
+    collapseAtRotation: null,
     phase: "playing",
     winners: [],
   };
@@ -204,6 +246,17 @@ function isComplete(s: GameState, box: number): boolean {
  * Sets `paused` if nobody is available.
  */
 function advanceTurn(s: GameState): void {
+  // An armed Wildcard that never fired is refunded rather than lost. Reaching
+  // here still armed means the turn ended without a placement — a timeout or a
+  // park — so the player never got to use what they paid 10 boxes for.
+  //
+  // applyMove always clears `armed` before advancing (it either fires, or the
+  // player claimed a box and keeps the turn), so this cannot double-refund.
+  if (s.armed) {
+    s.charges[currentPlayer(s)]++;
+    s.armed = false;
+  }
+
   const len = s.turnOrder.length;
   for (let step = 1; step <= len; step++) {
     const ptr = (s.turnPtr + step) % len;
@@ -236,6 +289,103 @@ export function resume(s: GameState): boolean {
     }
   }
   return false;
+}
+
+// --------------------------------------------------------- shrinking board ---
+
+/** Box ids on the perimeter of the current playable area, still alive. */
+export function ringBoxes(s: GameState): number[] {
+  const { r0, c0, r1, c1 } = s.bounds;
+  if (r0 > r1 || c0 > c1) return [];
+
+  const out: number[] = [];
+  for (let r = r0; r <= r1; r++) {
+    for (let c = c0; c <= c1; c++) {
+      const onEdge = r === r0 || r === r1 || c === c0 || c === c1;
+      if (!onEdge) continue;
+      const id = boxId(s.n, r, c);
+      if (s.boxes[id] !== DEAD) out.push(id);
+    }
+  }
+  return out;
+}
+
+/**
+ * True while the outer ring is one rotation from collapsing. The UI must pulse
+ * these boxes red — collapsing without warning is unfair and the whole
+ * mechanic depends on players being able to react.
+ */
+export function isShrinkWarning(s: GameState): boolean {
+  return (
+    s.phase === "playing" &&
+    s.collapseAtRotation !== null &&
+    s.rotations >= s.collapseAtRotation - 1
+  );
+}
+
+/** Arm the shrinking board once enough of the board is committed. */
+function maybeArmShrink(s: GameState): void {
+  if (s.mode !== "twist" || s.collapseAtRotation !== null) return;
+  const fraction = s.linesPlaced / lineCount(s.n);
+  if (fraction < shrinkArmFraction(playerCount(s))) return;
+  // +1 so the first collapse is preceded by a full rotation of warning.
+  s.collapseAtRotation = s.rotations + 1;
+}
+
+/** Collapse the outer ring if this rotation is the one. */
+function maybeCollapse(s: GameState): ShrinkOutcome | null {
+  if (s.mode !== "twist" || s.collapseAtRotation === null) return null;
+  if (s.phase !== "playing") return null;
+  if (s.rotations < s.collapseAtRotation) return null;
+
+  const ring = ringBoxes(s);
+  const removedBoxes: number[] = [];
+  const harvested: Array<{ box: number; owner: number }> = [];
+
+  for (const box of ring) {
+    const owner = s.boxes[box];
+    if (owner >= 0) {
+      // Already earned. The point stands and the tile flies to its owner now
+      // instead of at the end.
+      s.harvested[owner]++;
+      harvested.push({ box, owner });
+    } else if (owner === UNCLAIMED) {
+      // Never claimed by anyone, and now never can be.
+      s.boxesRemaining--;
+    }
+    // SPENT tiles were already burned to buy a Wildcard; they count for nobody
+    // either way, so they just disappear.
+    s.boxes[box] = DEAD;
+    removedBoxes.push(box);
+  }
+
+  s.bounds = {
+    r0: s.bounds.r0 + 1,
+    c0: s.bounds.c0 + 1,
+    r1: s.bounds.r1 - 1,
+    c1: s.bounds.c1 - 1,
+  };
+
+  // Clear placed lines that no longer border anything live, so the board
+  // visibly contracts rather than leaving a fringe behind.
+  const removedLines: number[] = [];
+  for (let id = 0; id < s.lines.length; id++) {
+    if (s.lines[id] === 0) continue;
+    if (!isDeadLine(s, id)) continue;
+    s.lines[id] = 0;
+    s.linesPlaced--;
+    removedLines.push(id);
+  }
+
+  s.collapseAtRotation = s.rotations + SHRINK_INTERVAL_ROTATIONS;
+
+  return { removedBoxes, harvested, removedLines, bounds: { ...s.bounds } };
+}
+
+/** Arm, then collapse if due. Called after every turn advance. */
+function checkShrink(s: GameState): ShrinkOutcome | null {
+  maybeArmShrink(s);
+  return maybeCollapse(s);
 }
 
 // ------------------------------------------------------------------ moves ---
@@ -281,16 +431,25 @@ export function applyMove(
     again = true;
   }
 
+  let shrink: ShrinkOutcome | null = null;
+  if (s.boxesRemaining > 0) {
+    if (again) {
+      // A claim earns the short clock. A Wildcard rescue does not — you didn't
+      // claim anything, so you may genuinely need the think time.
+      s.continuation = claimed.length > 0;
+    } else {
+      advanceTurn(s);
+      // Only a turn advance moves the rotation count, so this is the only place
+      // a collapse can become due.
+      shrink = checkShrink(s);
+    }
+  }
+
+  // A collapse can destroy the last unclaimed boxes, so test after shrinking.
   const gameOver = s.boxesRemaining === 0;
   if (gameOver) {
     s.phase = "over";
     s.winners = computeWinners(s);
-  } else if (again) {
-    // A claim earns the short clock. A Wildcard rescue does not — you didn't
-    // claim anything, so you may genuinely need the think time.
-    s.continuation = claimed.length > 0;
-  } else {
-    advanceTurn(s);
   }
 
   return {
@@ -306,6 +465,7 @@ export function applyMove(
       nextTurnSeconds: turnSecondsFor(s),
       gameOver,
       winners: s.winners.slice(),
+      shrink,
     },
   };
 }
@@ -316,6 +476,9 @@ export interface SkipOutcome {
   nextPlayerIndex: number;
   nextTurnSeconds: number;
   paused: boolean;
+  shrink: ShrinkOutcome | null;
+  gameOver: boolean;
+  winners: number[];
 }
 
 /** Shot clock expired. Never removes the player — parks them at the threshold. */
@@ -329,15 +492,27 @@ export function skipTurn(s: GameState, playerIndex: number): Result<SkipOutcome>
   if (benched) s.benched[playerIndex] = 1;
 
   advanceTurn(s);
+  const shrink = checkShrink(s);
+
+  // Nobody moving still burns rotations, so a timeout can collapse the ring
+  // that ends the game.
+  const gameOver = s.boxesRemaining === 0;
+  if (gameOver) {
+    s.phase = "over";
+    s.winners = computeWinners(s);
+  }
 
   return {
     ok: true,
     value: {
       playerIndex,
       benched,
-      nextPlayerIndex: s.paused ? -1 : currentPlayer(s),
+      nextPlayerIndex: s.paused || gameOver ? -1 : currentPlayer(s),
       nextTurnSeconds: turnSecondsFor(s),
       paused: s.paused,
+      shrink,
+      gameOver,
+      winners: s.winners.slice(),
     },
   };
 }

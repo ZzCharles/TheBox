@@ -19,8 +19,11 @@ import {
   canPlace,
   createGame,
   currentPlayer,
+  isShrinkWarning,
+  ringBoxes,
   skipTurn,
   turnSecondsFor,
+  type Mode,
 } from "../../shared/rules.ts";
 import { exposeDebug } from "../devtools.ts";
 import { attachPointer } from "../input/pointer.ts";
@@ -67,9 +70,9 @@ function renderSetup(root: HTMLElement, setActive: SetActive) {
 
       <section>
         <h2>Mode</h2>
-        <div class="chips">
-          <button class="chip selected" disabled>Simple</button>
-          <button class="chip" disabled title="Arrives in M5">Twist &middot; soon</button>
+        <div class="chips" id="modes">
+          <button class="chip selected" data-mode="simple">Simple</button>
+          <button class="chip" data-mode="twist">Twist</button>
         </div>
       </section>
 
@@ -85,7 +88,19 @@ function renderSetup(root: HTMLElement, setActive: SetActive) {
 
   const counts = root.querySelector<HTMLElement>("#counts")!;
   const hint = root.querySelector<HTMLElement>("#hint")!;
+  const modes = root.querySelector<HTMLElement>("#modes")!;
   let selected = 4;
+  let mode: Mode = "simple";
+
+  modes.addEventListener("click", (e) => {
+    const picked = (e.target as HTMLElement).dataset.mode;
+    if (picked !== "simple" && picked !== "twist") return;
+    mode = picked;
+    for (const chip of modes.querySelectorAll(".chip")) {
+      chip.classList.toggle("selected", (chip as HTMLElement).dataset.mode === mode);
+    }
+    updateHint();
+  });
 
   for (let p = MIN_PLAYERS; p <= MAX_PLAYERS; p++) {
     const chip = document.createElement("button");
@@ -102,20 +117,26 @@ function renderSetup(root: HTMLElement, setActive: SetActive) {
 
   function updateHint() {
     const n = gridSizeFor(selected);
-    hint.textContent = `${n}×${n} board · ${n * n} boxes · ${2 * n * (n + 1)} lines`;
+    const base = `${n}×${n} board · ${n * n} boxes · ${2 * n * (n + 1)} lines`;
+    hint.textContent = mode === "twist" ? `${base} · board shrinks` : base;
   }
 
   counts.children[selected - MIN_PLAYERS]?.classList.add("selected");
   updateHint();
 
   root.querySelector<HTMLElement>("#play")!.addEventListener("click", () => {
-    startGame(root, selected, setActive);
+    startGame(root, selected, mode, setActive);
   });
 }
 
 // ------------------------------------------------------------------- game ---
 
-function startGame(root: HTMLElement, playerCount: number, setActive: SetActive) {
+function startGame(
+  root: HTMLElement,
+  playerCount: number,
+  mode: Mode,
+  setActive: SetActive,
+) {
   const n = gridSizeFor(playerCount);
   const players: PlayerView[] = Array.from({ length: playerCount }, (_, i) => ({
     name: `Player ${i + 1}`,
@@ -123,7 +144,7 @@ function startGame(root: HTMLElement, playerCount: number, setActive: SetActive)
     color: PLAYER_COLORS[i]!,
   }));
 
-  let state = createGame({ n, mode: "simple", playerCount });
+  let state = createGame({ n, mode, playerCount });
 
   root.innerHTML = `
     <div class="game">
@@ -157,12 +178,14 @@ function startGame(root: HTMLElement, playerCount: number, setActive: SetActive)
     players,
     ghost: null,
     ghostColor: players[0]!.color,
+    doomed: [],
   };
 
   function syncView() {
     view.state = state;
     view.ghost = ghost;
     view.ghostColor = players[currentPlayer(state)]?.color ?? players[0]!.color;
+    view.doomed = isShrinkWarning(state) ? ringBoxes(state) : [];
   }
 
   const stage: Stage = createStage(

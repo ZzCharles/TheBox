@@ -267,6 +267,28 @@ input:focus-visible {
   color: #a78bfa;
 }
 
+.shop {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem 0;
+}
+
+.shop[hidden] {
+  display: none;
+}
+
+.shop .chip {
+  min-width: 0;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.8rem;
+}
+
+.shop .chip:disabled {
+  opacity: 0.35;
+}
+
 
 .game {
   position: fixed;

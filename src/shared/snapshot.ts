@@ -16,6 +16,7 @@ export function toSnapshot(s: GameState): GameSnapshot {
     lines: Array.from(s.lines),
     boxes: Array.from(s.boxes),
     scores: Array.from(s.scores),
+    harvested: Array.from(s.harvested),
     charges: Array.from(s.charges),
     benched: Array.from(s.benched),
     missed: Array.from(s.missed),
@@ -28,6 +29,8 @@ export function toSnapshot(s: GameState): GameSnapshot {
     boxesRemaining: s.boxesRemaining,
     rotations: s.rotations,
     turnSeq: s.turnSeq,
+    bounds: { ...s.bounds },
+    collapseAtRotation: s.collapseAtRotation,
     phase: s.phase,
     winners: [...s.winners],
   };
@@ -40,6 +43,7 @@ export function fromSnapshot(snap: GameSnapshot): GameState {
     lines: Uint8Array.from(snap.lines),
     boxes: Int8Array.from(snap.boxes),
     scores: Int32Array.from(snap.scores),
+    harvested: Int32Array.from(snap.harvested),
     charges: Uint8Array.from(snap.charges),
     benched: Uint8Array.from(snap.benched),
     missed: Uint8Array.from(snap.missed),
@@ -52,6 +56,8 @@ export function fromSnapshot(snap: GameSnapshot): GameState {
     boxesRemaining: snap.boxesRemaining,
     rotations: snap.rotations,
     turnSeq: snap.turnSeq,
+    bounds: { ...snap.bounds },
+    collapseAtRotation: snap.collapseAtRotation,
     phase: snap.phase,
     winners: [...snap.winners],
   };

@@ -379,6 +379,46 @@ describe("wildcard", () => {
     assert.equal(s.armed, false);
   });
 
+  it("refunds the charge if the turn ends without it firing", () => {
+    const s = twistWithBoxes(WILDCARD_COST);
+    assert.ok(buyWildcard(s, 0).ok);
+    assert.ok(armWildcard(s, 0).ok);
+    assert.equal(s.charges[0], 0, "arming spends the charge");
+
+    // Time runs out before they place anything.
+    assert.ok(skipTurn(s, 0).ok);
+
+    assert.equal(s.armed, false, "arming does not survive the turn");
+    assert.equal(
+      s.charges[0],
+      1,
+      "paying 10 boxes and then losing it to the clock would be brutal",
+    );
+  });
+
+  it("refunds the charge if the player is parked mid-turn", () => {
+    const s = twistWithBoxes(WILDCARD_COST);
+    assert.ok(buyWildcard(s, 0).ok);
+    assert.ok(armWildcard(s, 0).ok);
+
+    bench(s, 0);
+
+    assert.equal(s.armed, false);
+    assert.equal(s.charges[0], 1);
+  });
+
+  it("does not refund a charge that actually fired", () => {
+    const s = twistWithBoxes(WILDCARD_COST);
+    assert.ok(buyWildcard(s, 0).ok);
+    assert.ok(armWildcard(s, 0).ok);
+
+    const fired = play(s, 0, hLineId(8, 0, 0));
+    assert.equal(fired.wildcardFired, true);
+    play(s, 0, hLineId(8, 0, 1)); // quiet move, turn passes
+
+    assert.equal(s.charges[0], 0, "a spent Wildcard stays spent");
+  });
+
   it("disarms when the turn ends", () => {
     const s = twistWithBoxes(WILDCARD_COST);
     assert.ok(buyWildcard(s, 0).ok);

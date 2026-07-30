@@ -7,7 +7,7 @@
  */
 
 import { PROTOCOL_VERSION } from "./constants.ts";
-import type { Mode } from "./rules.ts";
+import type { Bounds, Mode, ShrinkOutcome } from "./rules.ts";
 
 export { PROTOCOL_VERSION };
 
@@ -49,6 +49,7 @@ export interface GameSnapshot {
   lines: number[];
   boxes: number[];
   scores: number[];
+  harvested: number[];
   charges: number[];
   benched: number[];
   missed: number[];
@@ -61,6 +62,8 @@ export interface GameSnapshot {
   boxesRemaining: number;
   rotations: number;
   turnSeq: number;
+  bounds: Bounds;
+  collapseAtRotation: number | null;
   phase: "playing" | "over";
   winners: number[];
 }
@@ -86,6 +89,10 @@ export type ClientMessage =
   | { t: "configure"; mode?: Mode; gridSize?: number }
   | { t: "start" }
   | { t: "move"; lineId: number; turnSeq: number }
+  /** Twist mode: spend points on a Wildcard charge. */
+  | { t: "buy" }
+  /** Twist mode: arm a held charge for this turn. */
+  | { t: "arm" }
   | { t: "rematch" }
   | { t: "wake" }
   | { t: "ping"; t0: number };
@@ -115,18 +122,40 @@ export type ServerMessage =
       claimed: number[];
       scores: number[];
       again: boolean;
+      wildcardFired: boolean;
       gameOver: boolean;
       winners: number[];
+      /** Non-null when this move's turn advance collapsed the outer ring. */
+      shrink: ShrinkOutcome | null;
       serverNow: number;
       turn: TurnInfo;
     }
   | {
       t: "skip";
       playerIndex: number;
+      /**
+       * Which path parked them. `timeout` replays as `skipTurn` (advances the
+       * miss counter and the turn sequence); `disconnect` replays as `bench`
+       * (does neither). Explicit, because inferring it from the sequence number
+       * is fragile.
+       */
+      reason: "timeout" | "disconnect";
       benched: boolean;
       paused: boolean;
+      gameOver: boolean;
+      winners: number[];
+      shrink: ShrinkOutcome | null;
       serverNow: number;
       turn: TurnInfo;
+    }
+  | {
+      t: "wildcard";
+      playerIndex: number;
+      action: "bought" | "armed";
+      /** Boxes burned to pay. Empty when arming. */
+      burned: number[];
+      charges: number;
+      scores: number[];
     }
   | { t: "pong"; t0: number; serverNow: number }
   | { t: "error"; code: ErrorCode; message: string };
@@ -140,6 +169,7 @@ export type ErrorCode =
   | "not-enough-players"
   | "not-ready"
   | "rejected"
+  | "wildcard"
   | "unknown-message";
 
 // ------------------------------------------------------------------ helpers ---

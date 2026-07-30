@@ -17,11 +17,17 @@ import {
 import { fromSnapshot } from "../../shared/snapshot.ts";
 import {
   applyMove,
+  armWildcard,
+  bench,
+  buyWildcard,
   canPlace,
   currentPlayer,
+  isShrinkWarning,
+  ringBoxes,
   skipTurn,
   type GameState,
 } from "../../shared/rules.ts";
+import { MAX_WILDCARD_CHARGES, WILDCARD_COST } from "../../shared/constants.ts";
 import { exposeDebug } from "../devtools.ts";
 import { attachPointer } from "../input/pointer.ts";
 import { clientId, storedName } from "../net/identity.ts";
@@ -82,6 +88,10 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         applyBroadcastSkip(msg);
         break;
 
+      case "wildcard":
+        applyBroadcastWildcard(msg);
+        break;
+
       case "error":
         toast(msg.message);
         if (msg.code === "bad-protocol") location.reload();
@@ -106,11 +116,41 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
 
     room.turnDeadline = msg.turn.turnDeadline;
     onMoveRendered?.(msg.lineId, result.value.claimed);
+    if (msg.shrink) announceShrink(msg.shrink.removedBoxes.length);
+    if (msg.wildcardFired) {
+      toast(`${room.players[msg.playerIndex]?.name ?? "Someone"} used a Wildcard`);
+    }
 
     if (import.meta.env.DEV) {
       const drift = msg.scores.some((s, i) => s !== state!.scores[i]);
       if (drift) console.warn("[box] score divergence from server", msg.scores);
     }
+  }
+
+  /**
+   * Buying burns tiles off the board, so every client replays it — otherwise
+   * boxes would silently turn grey with no explanation.
+   */
+  function applyBroadcastWildcard(msg: Extract<ServerMessage, { t: "wildcard" }>) {
+    if (!state || !room) return;
+    const result =
+      msg.action === "bought"
+        ? buyWildcard(state, msg.playerIndex)
+        : armWildcard(state, msg.playerIndex);
+    if (!result.ok) {
+      resync();
+      return;
+    }
+    const who = room.players[msg.playerIndex]?.name ?? "Someone";
+    toast(
+      msg.action === "bought"
+        ? `${who} bought a Wildcard for ${WILDCARD_COST}`
+        : `${who} armed a Wildcard`,
+    );
+  }
+
+  function announceShrink(removed: number) {
+    toast(`The board is closing in — ${removed} squares gone`);
   }
 
   /**
@@ -120,12 +160,26 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
    */
   function applyBroadcastSkip(msg: Extract<ServerMessage, { t: "skip" }>) {
     if (!state || !room) return;
-    const result = skipTurn(state, msg.playerIndex);
-    if (!result.ok || state.turnSeq !== msg.turn.turnSeq) {
+
+    if (msg.reason === "disconnect") {
+      // Parked for being gone, not for running out of clock: replay the same
+      // `bench` the server ran, which leaves the miss counter and turn sequence
+      // untouched.
+      bench(state, msg.playerIndex);
+    } else {
+      const result = skipTurn(state, msg.playerIndex);
+      if (!result.ok) {
+        resync();
+        return;
+      }
+    }
+
+    if (state.turnSeq !== msg.turn.turnSeq) {
       resync();
       return;
     }
     room.turnDeadline = msg.turn.turnDeadline;
+    if (msg.shrink) announceShrink(msg.shrink.removedBoxes.length);
   }
 
   function resync() {
@@ -188,6 +242,15 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
           <p class="hint" id="watching"></p>
         </section>
 
+        <section>
+          <h2>Mode</h2>
+          <div class="chips" id="modes">
+            <button class="chip" data-mode="simple">Simple</button>
+            <button class="chip" data-mode="twist">Twist</button>
+          </div>
+          <p class="hint" id="mode-note"></p>
+        </section>
+
         <p class="hint" id="grid"></p>
         <button class="primary" id="ready">I'm ready</button>
         <button class="primary" id="start" hidden>Start game</button>
@@ -205,6 +268,13 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     readyBtn.addEventListener("click", () => {
       const self = room?.players.find((p) => p.id === me);
       net.send({ t: "ready", ready: !self?.ready });
+    });
+
+    const modes = root.querySelector<HTMLElement>("#modes")!;
+    const modeNote = root.querySelector<HTMLElement>("#mode-note")!;
+    modes.addEventListener("click", (e) => {
+      const mode = (e.target as HTMLElement).dataset.mode;
+      if (mode === "simple" || mode === "twist") net.send({ t: "configure", mode });
     });
     startBtn.addEventListener("click", () => net.send({ t: "start" }));
     root.querySelector<HTMLElement>("#share")!.addEventListener("click", () => {
@@ -236,6 +306,16 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       watching.textContent = room.spectators.length
         ? `${room.spectators.map((s) => s.name).join(", ")} watching`
         : "";
+
+      for (const chip of modes.querySelectorAll<HTMLButtonElement>(".chip")) {
+        chip.classList.toggle("selected", chip.dataset.mode === room.config.mode);
+        // Only the host can change it, but everyone sees what was picked.
+        chip.disabled = !isHost;
+      }
+      modeNote.textContent =
+        room.config.mode === "twist"
+          ? `Board shrinks · spend ${WILDCARD_COST} boxes for an extra line`
+          : "Classic dots and boxes";
 
       const n = room.config.gridSize || estimateGrid(room.players.length);
       grid.textContent = `${n}×${n} board · ${n * n} boxes`;
@@ -276,6 +356,10 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       <div class="game">
         <div id="scoreboard"></div>
         <div class="board-wrap"><div class="board" id="board"></div></div>
+        <div class="shop" id="shop" hidden>
+          <button class="chip" id="buy"></button>
+          <button class="chip" id="arm"></button>
+        </div>
         <div class="turn-banner" id="banner"></div>
         <div class="pill" id="pill"></div>
         <div class="toast" id="toast"></div>
@@ -305,6 +389,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       players,
       ghost: null,
       ghostColor: players[myIndex]?.color ?? "#888",
+      doomed: [],
     };
 
     function syncBoardView() {
@@ -312,6 +397,9 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       boardView.state = state;
       boardView.ghost = ghost ?? pending;
       boardView.ghostColor = players[currentPlayer(state)]?.color ?? "#888";
+      // Recomputed on state change, not per frame — the pulse itself is driven
+      // by the clock inside the renderer.
+      boardView.doomed = isShrinkWarning(state) ? ringBoxes(state) : [];
     }
 
     const stage: Stage = createStage(
@@ -408,10 +496,41 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       });
     }, CLOCK_TICK_MS);
 
+    const shop = root.querySelector<HTMLElement>("#shop")!;
+    const buyBtn = root.querySelector<HTMLButtonElement>("#buy")!;
+    const armBtn = root.querySelector<HTMLButtonElement>("#arm")!;
+    buyBtn.addEventListener("click", () => net.send({ t: "buy" }));
+    armBtn.addEventListener("click", () => net.send({ t: "arm" }));
+
+    function updateShop() {
+      if (!state || spectating || state.mode !== "twist") {
+        shop.hidden = true;
+        return;
+      }
+      const myTurn = currentPlayer(state) === myIndex && state.phase === "playing";
+      shop.hidden = !myTurn;
+      if (!myTurn) return;
+
+      const score = state.scores[myIndex] ?? 0;
+      const charges = state.charges[myIndex] ?? 0;
+
+      buyBtn.textContent = `Wildcard · ${WILDCARD_COST}`;
+      buyBtn.disabled = score < WILDCARD_COST || charges >= MAX_WILDCARD_CHARGES;
+      buyBtn.title =
+        score < WILDCARD_COST
+          ? `Costs ${WILDCARD_COST} boxes — you have ${score}`
+          : "Burns 10 of your boxes for one extra line";
+
+      armBtn.textContent = state.armed ? "Armed" : `Arm${charges > 1 ? ` ×${charges}` : ""}`;
+      armBtn.disabled = charges === 0 || state.armed;
+      armBtn.classList.toggle("selected", state.armed);
+    }
+
     updateView = () => {
       if (!room || !state) return;
       syncBoardView();
       stage.requestFrame();
+      updateShop();
 
       // Connection state outranks everything: if we are offline, nothing else
       // on screen is trustworthy, so say so rather than showing a stale turn.

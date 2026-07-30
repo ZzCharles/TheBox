@@ -43,6 +43,11 @@ export interface BoardView {
   ghost: number | null;
   /** Colour for the ghost — the current player's. */
   ghostColor: string;
+  /**
+   * Boxes about to be destroyed by the shrinking board. They pulse red for a
+   * full rotation before collapsing; empty when no collapse is pending.
+   */
+  doomed: number[];
 }
 
 export interface BoardRenderer {
@@ -66,10 +71,17 @@ export function createBoardRenderer(
   let viewW = width;
   let viewH = height;
 
-  function drawDots(ctx: CanvasRenderingContext2D) {
+  /**
+   * Only the dots bordering live boxes are drawn, so the board visibly
+   * contracts as the shrinking board eats the outer rings.
+   */
+  function drawDots(ctx: CanvasRenderingContext2D, { state }: BoardView) {
     const half = dotSprite.cssSize / 2;
-    for (let r = 0; r <= layout.n; r++) {
-      for (let c = 0; c <= layout.n; c++) {
+    const { r0, c0, r1, c1 } = state.bounds;
+    if (r0 > r1 || c0 > c1) return;
+
+    for (let r = r0; r <= r1 + 1; r++) {
+      for (let c = c0; c <= c1 + 1; c++) {
         ctx.drawImage(
           dotSprite.canvas,
           dotX(layout, c) - half,
@@ -79,6 +91,29 @@ export function createBoardRenderer(
         );
       }
     }
+  }
+
+  /** Red pulse over the ring that is one rotation from collapsing. */
+  function drawDoomed(ctx: CanvasRenderingContext2D, now: number, view: BoardView) {
+    if (view.doomed.length === 0) return;
+    const beat = 0.5 + 0.5 * Math.sin(now / 260);
+
+    ctx.save();
+    ctx.fillStyle = "#F87171";
+    ctx.strokeStyle = "#F87171";
+    ctx.lineWidth = 1;
+    for (const box of view.doomed) {
+      const { x, y, w, h } = boxRect(
+        layout,
+        boxRow(layout.n, box),
+        boxCol(layout.n, box),
+      );
+      ctx.globalAlpha = 0.1 + 0.22 * beat;
+      ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = 0.25 + 0.45 * beat;
+      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    }
+    ctx.restore();
   }
 
   function drawBoxes(
@@ -268,11 +303,14 @@ export function createBoardRenderer(
       ctx.clearRect(0, 0, viewW, viewH);
 
       drawBoxes(ctx, now, view);
+      drawDoomed(ctx, now, view);
       drawLines(ctx, now, view);
       drawGhost(ctx, view);
-      drawDots(ctx);
+      drawDots(ctx, view);
 
-      return anim.update(now);
+      // The doomed pulse is time-driven rather than tween-driven, so it has to
+      // keep asking for frames on its own.
+      return anim.update(now) || view.doomed.length > 0;
     },
   };
 }
