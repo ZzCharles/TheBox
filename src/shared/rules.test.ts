@@ -316,9 +316,14 @@ describe("wildcard", () => {
   it("caps charges", () => {
     const s = twistWithBoxes(WILDCARD_COST * (MAX_WILDCARD_CHARGES + 1));
     for (let i = 0; i < MAX_WILDCARD_CHARGES; i++) {
-      assert.ok(buyWildcard(s, i === 0 ? 0 : 0).ok);
+      assert.ok(buyWildcard(s, 0).ok, `purchase ${i + 1} should succeed`);
     }
+    assert.equal(s.charges[0], MAX_WILDCARD_CHARGES);
     expectReject(buyWildcard(s, 0), "charges-full");
+    assert.ok(
+      s.scores[0] >= WILDCARD_COST,
+      "still affordable — the cap is what blocks this, not the price",
+    );
   });
 
   it("needs a charge to arm, and only one at a time", () => {
