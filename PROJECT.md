@@ -395,8 +395,18 @@ predictable. Benched players are skipped but keep their slot.
   games most at risk of dragging. This is the main lever for game length; tune it here
   before touching grid size.
 - Then, every **2 full rotations**, the outermost ring of the current playable area collapses.
-- **One full rotation of warning.** Doomed boxes pulse red; their border dots flicker.
-  This is non-negotiable for fairness — never collapse without warning.
+- **Two rounds of notice, not one** (revised at M6 after playtest — "it catches you off guard").
+  A collapse should be something players hurry *towards*, not an ambush:
+  - **2 rounds out:** a visible countdown chip, "Board shrinks in 2". No pulse yet.
+  - **1 round out:** "Board shrinks NEXT round", and the doomed ring pulses red.
+  - Then it collapses.
+
+  `roundsUntilCollapse(state)` drives the chip; `isShrinkWarning()` is just
+  `rounds <= 1`. One round of notice arrives too late to change anyone's plan, which is
+  precisely the complaint. Never collapse without both stages.
+- **Say what was KEPT, not just what vanished.** Claimed tiles in a collapsing ring bank
+  their points, so the toast reads "N boxes banked · M lost". Phrasing it as pure loss made
+  a neutral mechanic read as a punishment.
 - On collapse:
   - Boxes in the ring **already claimed** → owner keeps the point. The tile detaches and
     flies to their scoreboard immediately (a preview of the endgame animation, reused code).
@@ -437,6 +447,12 @@ too swingy, and it made every claimed box feel provisional.)*
   because `applyMove` always clears `armed` before advancing.
 - Broadcast to the whole room with its own sound and a toast — everyone should understand
   why someone got two lines.
+- **Holding a Wildcard is public** (added at M6). A ✦ badge sits on the owner's scoreboard
+  avatar for the whole table to see, and glows while armed. A power nobody can see
+  generates no tension; the point is that everyone knows someone is holding one.
+- ⚠️ The badge must show when `charges > 0` **OR** that player is armed. Arming *spends*
+  the charge, so keying the badge off `charges` alone hides it at the exact moment it
+  matters most — the move it is about to fire on. (Caught in review at M6.)
 
 **On the price.** 10 points is deliberately steep: average score in a 6-player, 81-box game
 is ~13, so buying is over half your holdings. That makes it a bad early-game move and a
@@ -716,6 +732,8 @@ public). Duck to 4 concurrent voices max.
       - [x] Fixed-height rows — killed the 39 px board jump on every move (2026-07-31)
       - [x] Powerup row always visible in twist, greyed when unusable (2026-07-31)
       - [x] Leave button + Android hardware back (2026-07-31)
+      - [x] Collapse countdown — two rounds of notice instead of one (2026-07-31)
+      - [x] Public ✦ Wildcard badge on every player's avatar (2026-07-31)
       - [ ] Audio: tick, click, thunk, whoosh, clack, blip, fanfare
       - [ ] Play button with the hinged lid + screen shake
       - [ ] Carpet-in dot animation

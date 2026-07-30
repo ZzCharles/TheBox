@@ -254,6 +254,8 @@ function startGame(
     scoreboard.update({
       scores: state.scores,
       benched: state.benched,
+      charges: state.charges,
+      armed: state.armed,
       current: currentPlayer(state),
       clockFraction: turnMs > 0 ? Math.max(0, (turnMs - (now - turnStartedAt)) / turnMs) : 0,
       secondsLeft: secondsLeft(now),

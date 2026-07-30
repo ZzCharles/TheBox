@@ -311,16 +311,24 @@ export function ringBoxes(s: GameState): number[] {
 }
 
 /**
- * True while the outer ring is one rotation from collapsing. The UI must pulse
- * these boxes red — collapsing without warning is unfair and the whole
- * mechanic depends on players being able to react.
+ * Full rounds until the outer ring collapses, or null if no collapse is
+ * scheduled. Drives the visible countdown — players need to see it coming far
+ * enough ahead to change what they do, not just be told it is imminent.
+ */
+export function roundsUntilCollapse(s: GameState): number | null {
+  if (s.mode !== "twist" || s.phase !== "playing") return null;
+  if (s.collapseAtRotation === null) return null;
+  return Math.max(0, s.collapseAtRotation - s.rotations);
+}
+
+/**
+ * True on the FINAL round before a collapse. The UI pulses the doomed ring red
+ * for this round — collapsing without warning is unfair, and the whole mechanic
+ * depends on players being able to react.
  */
 export function isShrinkWarning(s: GameState): boolean {
-  return (
-    s.phase === "playing" &&
-    s.collapseAtRotation !== null &&
-    s.rotations >= s.collapseAtRotation - 1
-  );
+  const rounds = roundsUntilCollapse(s);
+  return rounds !== null && rounds <= 1;
 }
 
 /** Arm the shrinking board once enough of the board is committed. */
@@ -328,8 +336,9 @@ function maybeArmShrink(s: GameState): void {
   if (s.mode !== "twist" || s.collapseAtRotation !== null) return;
   const fraction = s.linesPlaced / lineCount(s.n);
   if (fraction < shrinkArmFraction(playerCount(s))) return;
-  // +1 so the first collapse is preceded by a full rotation of warning.
-  s.collapseAtRotation = s.rotations + 1;
+  // Two rounds, not one: the first shows a countdown so players can plan, the
+  // second pulses the doomed ring. One round of notice arrives too late to act on.
+  s.collapseAtRotation = s.rotations + SHRINK_INTERVAL_ROTATIONS;
 }
 
 /** Collapse the outer ring if this rotation is the one. */

@@ -10,6 +10,7 @@ import {
   DEAD,
   isShrinkWarning,
   legalMoves,
+  roundsUntilCollapse,
   SPENT,
   type GameState,
 } from "./rules.ts";
@@ -66,17 +67,64 @@ describe("shrinking board — arming", () => {
     assert.ok(shrinkArmFraction(8) < shrinkArmFraction(4));
   });
 
-  it("gives a full rotation of warning before the first collapse", () => {
+  it("gives two rounds of notice before the first collapse", () => {
     const s = createGame({ n: 6, mode: "twist", playerCount: 3 });
     playUntil(s, (g) => g.collapseAtRotation !== null);
 
     assert.equal(
-      s.collapseAtRotation,
-      s.rotations + 1,
-      "collapse must be one rotation away when it arms",
+      roundsUntilCollapse(s),
+      SHRINK_INTERVAL_ROTATIONS,
+      "arming must leave time to react, not just announce the collapse",
     );
-    assert.ok(isShrinkWarning(s), "the doomed ring should already be pulsing");
-    assert.ok(![...s.boxes].includes(DEAD), "nothing dies during the warning");
+    assert.equal(
+      isShrinkWarning(s),
+      false,
+      "the ring should not pulse yet — that is the final round",
+    );
+    assert.ok(![...s.boxes].includes(DEAD), "nothing dies while the countdown runs");
+  });
+
+  it("counts down, then pulses on the last round, then collapses", () => {
+    const s = createGame({ n: 6, mode: "twist", playerCount: 3 });
+    playUntil(s, (g) => g.collapseAtRotation !== null);
+
+    const seen: Array<{ rounds: number | null; pulsing: boolean; dead: number }> = [];
+    let guard = 0;
+    while (s.phase === "playing" && s.bounds.r0 === 0 && guard++ < 800) {
+      const legal = legalMoves(s);
+      if (legal.length === 0) break;
+      assert.ok(applyMove(s, currentPlayer(s), legal[0]!).ok);
+      seen.push({
+        rounds: roundsUntilCollapse(s),
+        pulsing: isShrinkWarning(s),
+        dead: [...s.boxes].filter((b) => b === DEAD).length,
+      });
+    }
+
+    // The countdown must strictly decrease and the pulse must precede any death.
+    const beforeCollapse = seen.filter((x) => x.dead === 0);
+    assert.ok(beforeCollapse.length > 0);
+    assert.ok(
+      beforeCollapse.some((x) => x.rounds === SHRINK_INTERVAL_ROTATIONS && !x.pulsing),
+      "there should be a visible countdown round with no pulse",
+    );
+    assert.ok(
+      beforeCollapse.some((x) => x.rounds === 1 && x.pulsing),
+      "the round before the collapse must pulse",
+    );
+    assert.ok(
+      beforeCollapse.every((x) => x.dead === 0),
+      "nothing may die before the collapse itself",
+    );
+  });
+
+  it("reports no countdown in simple mode or before arming", () => {
+    const simple = createGame({ n: 6, mode: "simple", playerCount: 2 });
+    assert.equal(roundsUntilCollapse(simple), null);
+
+    const twist = createGame({ n: 6, mode: "twist", playerCount: 2 });
+    assert.equal(roundsUntilCollapse(twist), null, "not armed yet");
+    assert.equal(isShrinkWarning(twist), false);
   });
 });
 

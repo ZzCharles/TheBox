@@ -37,7 +37,12 @@
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; \"=== running wrangler with no shim at all ===\"; node \"node_modules\\\\wrangler\\\\bin\\\\wrangler.js\" --version 2>&1 | Select-Object -First 5)",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 12)",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run build 2>&1 | Select-Object -Last 8; \"=== tests ===\"; npm test 2>&1 | Select-Object -Last 7)",
-      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; $msg = \"C:\\\\Users\\\\rabin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-rabin-Desktop-Projects-Box\\\\10a37a6c-5349-4738-8ce6-7836067d810f\\\\scratchpad\\\\commit-m6a.txt\"; git add -A; git -c user.name=\"rabin\" -c user.email=\"reshipal777@gmail.com\" commit -q -F $msg; git log --oneline | Select-Object -First 3; \"=== working tree ===\"; git status --short | Select-Object -First 5)"
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; $msg = \"C:\\\\Users\\\\rabin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-rabin-Desktop-Projects-Box\\\\10a37a6c-5349-4738-8ce6-7836067d810f\\\\scratchpad\\\\commit-m6a.txt\"; git add -A; git -c user.name=\"rabin\" -c user.email=\"reshipal777@gmail.com\" commit -q -F $msg; git log --oneline | Select-Object -First 3; \"=== working tree ===\"; git status --short | Select-Object -First 5)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 24)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; node -e \"const fs=require\\('fs'\\);const p='src/client/ui/room.ts';let t=fs.readFileSync\\(p,'utf8'\\);const n=t.split\\('announceShrink\\(msg.shrink.removedBoxes.length\\)'\\).length-1;t=t.split\\('announceShrink\\(msg.shrink.removedBoxes.length\\)'\\).join\\('announceShrink\\(msg.shrink\\)'\\);fs.writeFileSync\\(p,t,'utf8'\\);console.log\\('call sites updated:',n\\);\")",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run check 2>&1 | Select-Object -Last 15)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 7; \"=== build ===\"; npm run build 2>&1 | Select-Object -Last 6)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; $msg = \"C:\\\\Users\\\\rabin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-rabin-Desktop-Projects-Box\\\\10a37a6c-5349-4738-8ce6-7836067d810f\\\\scratchpad\\\\commit-m6b.txt\"; git add -A; git -c user.name=\"rabin\" -c user.email=\"reshipal777@gmail.com\" commit -q -F $msg; git log --oneline | Select-Object -First 3)"
     ]
   }
 }

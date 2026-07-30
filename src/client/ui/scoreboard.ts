@@ -14,6 +14,14 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 export interface ScoreboardState {
   scores: ArrayLike<number>;
   benched: ArrayLike<number>;
+  /**
+   * Wildcard charges held, per player. Shown to EVERYONE: knowing that someone
+   * is holding a power is most of the tension, and a power nobody can see might
+   * as well not exist.
+   */
+  charges: ArrayLike<number>;
+  /** The current player has a Wildcard armed and ready to fire. */
+  armed: boolean;
   current: number;
   /** Fraction of the turn remaining, 1 -> 0. */
   clockFraction: number;
@@ -48,6 +56,7 @@ export function createScoreboard(
                   stroke-dasharray="${RING_CIRCUMFERENCE}" stroke-dashoffset="0" />
         </svg>
         <span class="initial">${player.initial}</span>
+        <span class="wildcard-badge" hidden>✦</span>
       </div>
       <span class="score">0</span>
       <span class="name">${player.name}</span>
@@ -59,6 +68,7 @@ export function createScoreboard(
       index,
       score: panel.querySelector<HTMLElement>(".score")!,
       progress: panel.querySelector<SVGCircleElement>(".ring-progress")!,
+      badge: panel.querySelector<HTMLElement>(".wildcard-badge")!,
     };
   });
 
@@ -68,6 +78,19 @@ export function createScoreboard(
         const isActive = !state.over && !state.paused && p.index === state.current;
         const isBenched = state.benched[p.index] === 1;
         const isWinner = state.over && state.winners.includes(p.index);
+
+        const charges = state.charges[p.index] ?? 0;
+        // Arming SPENDS the charge, so `charges` alone would hide the badge at
+        // the exact moment it matters most — the move it is about to fire on.
+        const armedHere = isActive && state.armed;
+        p.badge.hidden = charges === 0 && !armedHere;
+        p.badge.textContent = charges > 1 ? `✦${charges}` : "✦";
+        p.badge.classList.toggle("armed", armedHere);
+        p.badge.title = armedHere
+          ? "Extra line ready — fires on their next move"
+          : charges > 0
+            ? `Holding ${charges} extra line${charges > 1 ? "s" : ""}`
+            : "";
 
         p.score.textContent = String(state.scores[p.index] ?? 0);
         p.panel.classList.toggle("active", isActive);

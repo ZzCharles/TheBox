@@ -359,6 +359,67 @@ input:focus-visible {
   opacity: 1;
 }
 
+/* Collapse countdown — anticipation, not ambush. */
+.shrink-chip {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  opacity: 0;
+  transition: opacity 200ms ease, color 200ms ease;
+}
+
+.shrink-chip.visible {
+  opacity: 1;
+}
+
+.shrink-chip.imminent {
+  color: #f87171;
+  animation: shrink-warn 900ms ease-in-out infinite;
+}
+
+@keyframes shrink-warn {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Wildcard held — shown on every player, not just yours. */
+.wildcard-badge {
+  position: absolute;
+  right: -0.1rem;
+  bottom: -0.1rem;
+  min-width: 0.95rem;
+  height: 0.95rem;
+  padding: 0 0.15rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--bg-deep);
+  box-shadow: 0 0 0 1px var(--dot);
+  color: var(--dot);
+  font-size: 0.55rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.wildcard-badge[hidden] {
+  display: none;
+}
+
+.wildcard-badge.armed {
+  background: var(--dot);
+  color: #1a1206;
+  box-shadow: 0 0 10px rgb(255 194 75 / 70%);
+  animation: badge-armed 800ms ease-in-out infinite;
+}
+
+@keyframes badge-armed {
+  50% {
+    transform: scale(1.18);
+  }
+}
+
 
 .game {
   position: fixed;

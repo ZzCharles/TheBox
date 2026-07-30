@@ -24,6 +24,7 @@ import {
   currentPlayer,
   isShrinkWarning,
   ringBoxes,
+  roundsUntilCollapse,
   skipTurn,
   type GameState,
 } from "../../shared/rules.ts";
@@ -122,7 +123,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
 
     room.turnDeadline = msg.turn.turnDeadline;
     onMoveRendered?.(msg.lineId, result.value.claimed);
-    if (msg.shrink) announceShrink(msg.shrink.removedBoxes.length);
+    if (msg.shrink) announceShrink(msg.shrink);
     if (msg.wildcardFired) {
       toast(`${room.players[msg.playerIndex]?.name ?? "Someone"} used a Wildcard`);
     }
@@ -155,8 +156,19 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     );
   }
 
-  function announceShrink(removed: number) {
-    toast(`The board is closing in — ${removed} squares gone`);
+  /**
+   * Say what players KEPT, not just what vanished. Claimed tiles in a
+   * collapsing ring bank their points — phrasing it as pure loss made the
+   * mechanic read as a punishment.
+   */
+  function announceShrink(shrink: { removedBoxes: number[]; harvested: unknown[] }) {
+    const kept = shrink.harvested.length;
+    const lost = shrink.removedBoxes.length - kept;
+    toast(
+      kept > 0
+        ? `Board closed in · ${kept} claimed ${kept === 1 ? "box" : "boxes"} banked · ${lost} lost`
+        : `Board closed in · ${lost} unclaimed ${lost === 1 ? "square" : "squares"} gone`,
+    );
   }
 
   /**
@@ -198,7 +210,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       return;
     }
     room.turnDeadline = msg.turn.turnDeadline;
-    if (msg.shrink) announceShrink(msg.shrink.removedBoxes.length);
+    if (msg.shrink) announceShrink(msg.shrink);
   }
 
   function resync() {
@@ -413,6 +425,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
             ? `<div class="shop" id="shop">
                  <button class="chip" id="buy"></button>
                  <button class="chip" id="arm"></button>
+                 <span class="shrink-chip" id="shrink"></span>
                </div>`
             : ""
         }
@@ -554,6 +567,8 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       scoreboard.update({
         scores: state.scores,
         benched: state.benched,
+        charges: state.charges,
+        armed: state.armed,
         current: currentPlayer(state),
         clockFraction: clockFraction(left, state),
         secondsLeft: left,
@@ -562,6 +577,22 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         winners: state.winners,
       });
     }, CLOCK_TICK_MS);
+
+    const shrinkChip = root.querySelector<HTMLElement>("#shrink");
+
+    /** Visible countdown, so a collapse is something you plan for, not a surprise. */
+    function updateShrinkChip() {
+      if (!shrinkChip || !state) return;
+      const rounds = roundsUntilCollapse(state);
+      if (rounds === null) {
+        shrinkChip.textContent = "";
+        shrinkChip.className = "shrink-chip";
+        return;
+      }
+      shrinkChip.textContent =
+        rounds <= 1 ? "Board shrinks NEXT round" : `Board shrinks in ${rounds}`;
+      shrinkChip.className = `shrink-chip visible${rounds <= 1 ? " imminent" : ""}`;
+    }
 
     const buyBtn = root.querySelector<HTMLButtonElement>("#buy");
     const armBtn = root.querySelector<HTMLButtonElement>("#arm");
@@ -604,6 +635,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       syncBoardView();
       stage.requestFrame();
       updateShop();
+      updateShrinkChip();
 
       const active = room.players[currentPlayer(state)];
       nowPlaying.textContent =
