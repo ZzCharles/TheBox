@@ -12,7 +12,11 @@
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npx wrangler types 2>&1 | Select-Object -Last 25)",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm uninstall @cloudflare/workers-types --silent 2>&1 | Out-Null; npm install -D \"@types/node@latest\" --silent 2>&1 | Out-Null; npx wrangler types 2>&1 | Select-Object -Last 3; \"=== typecheck client+shared ===\"; npx tsc -p tsconfig.json --noEmit 2>&1 | Select-Object -Last 25)",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run check 2>&1 | Select-Object -Last 30)",
-      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run build 2>&1 | Select-Object -Last 30)"
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run build 2>&1 | Select-Object -Last 30)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 45)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 40)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run check 2>&1 | Select-Object -Last 25)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 10; \"=== build ===\"; npm run build 2>&1 | Select-Object -Last 14)"
     ]
   }
 }

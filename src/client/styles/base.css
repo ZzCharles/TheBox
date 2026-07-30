@@ -30,6 +30,13 @@ body {
   overscroll-behavior: none;
 }
 
+body {
+  /* The board owns the viewport; nothing should rubber-band or select. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
 #app {
   min-height: 100dvh;
   display: grid;

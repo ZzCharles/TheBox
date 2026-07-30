@@ -1,0 +1,299 @@
+/* Setup screen ---------------------------------------------------------- */
+
+.setup {
+  display: grid;
+  gap: 1.5rem;
+  justify-items: center;
+  text-align: center;
+  width: min(100%, 26rem);
+}
+
+.setup h1 {
+  font-size: clamp(2.5rem, 15vw, 4rem);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--dot);
+  text-shadow: 0 0 32px rgb(255 176 32 / 35%);
+}
+
+.setup h2 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 0.6rem;
+}
+
+.setup section {
+  width: 100%;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.chip {
+  min-width: 2.75rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #2a3040;
+  border-radius: 0.6rem;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.chip:active {
+  transform: scale(0.96);
+}
+
+.chip.selected {
+  border-color: var(--dot);
+  background: rgb(255 194 75 / 12%);
+  color: var(--dot);
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.primary {
+  padding: 0.9rem 2.5rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: var(--dot);
+  color: #1a1206;
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  box-shadow: 0 8px 28px rgb(255 176 32 / 28%);
+  transition: transform 120ms ease;
+}
+
+.primary:active {
+  transform: scale(0.97);
+}
+
+.hint {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+/* Game shell ------------------------------------------------------------ */
+
+.game {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: max(0.5rem, env(safe-area-inset-top)) 0.5rem
+    max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.board-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.board {
+  position: absolute;
+  inset: 0;
+}
+
+/* Scoreboard ------------------------------------------------------------ */
+
+.scoreboard {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(var(--player-count), minmax(0, 1fr));
+  gap: 0.3rem;
+  padding: 0.4rem 0.2rem 0.6rem;
+}
+
+.player {
+  display: grid;
+  justify-items: center;
+  gap: 0.1rem;
+  padding: 0.35rem 0.1rem;
+  border-radius: 0.6rem;
+  background: transparent;
+  transition: background 180ms ease, opacity 180ms ease;
+}
+
+.player.active {
+  background: var(--surface);
+  box-shadow: 0 4px 18px rgb(0 0 0 / 45%);
+}
+
+.player.benched {
+  opacity: 0.35;
+}
+
+.avatar {
+  position: relative;
+  width: 100%;
+  max-width: 2.75rem;
+  aspect-ratio: 1;
+}
+
+.avatar svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.ring-track {
+  fill: none;
+  stroke: #232838;
+  stroke-width: 3;
+}
+
+.ring-progress {
+  fill: none;
+  stroke: var(--player-color);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke 200ms ease;
+}
+
+.player.warning .ring-progress {
+  stroke: #fbbf24;
+}
+
+.player.critical .ring-progress {
+  stroke: #f87171;
+  animation: ring-flash 1s ease-in-out infinite;
+}
+
+@keyframes ring-flash {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.initial {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--player-color);
+}
+
+.score {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.name {
+  font-size: 0.55rem;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.player.winner {
+  background: rgb(255 194 75 / 10%);
+  box-shadow: inset 0 0 0 1px rgb(255 194 75 / 45%);
+}
+
+/* Transient feedback ---------------------------------------------------- */
+
+.pill,
+.toast {
+  position: fixed;
+  left: 50%;
+  translate: -50% 0;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  background: rgb(23 27 38 / 92%);
+  font-size: 0.78rem;
+  font-weight: 600;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease, translate 180ms ease;
+}
+
+.pill {
+  top: 22%;
+  color: #fbbf24;
+  box-shadow: 0 4px 20px rgb(0 0 0 / 50%);
+}
+
+.toast {
+  bottom: 12%;
+  color: var(--text-dim);
+}
+
+.pill.show,
+.toast.show {
+  opacity: 1;
+}
+
+.pill.show {
+  translate: -50% -0.35rem;
+}
+
+/* Result overlay -------------------------------------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(11 13 18 / 82%);
+  backdrop-filter: blur(6px);
+}
+
+.overlay[hidden] {
+  display: none;
+}
+
+.result {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: center;
+  text-align: center;
+  padding: 2rem;
+}
+
+.result .label {
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.result h2 {
+  font-size: clamp(1.6rem, 9vw, 2.4rem);
+  color: var(--dot);
+}
+
+.score-line {
+  color: var(--text-dim);
+  margin-bottom: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -2,7 +2,7 @@
 
 > **Working title:** BOX (rename pending — see Open Questions)
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0 + M1 complete. **Next: M2 — board renderer.**
+> **Status:** M0–M2 complete. **Next: M3 — networking.**
 > **Last updated:** 2026-07-30
 
 ---
@@ -64,6 +64,11 @@ Two rulesets, chosen at lobby creation:
 - ✅ **Node v24.18.0** at `C:\Program Files\nodejs\` (installed 2026-07-30).
 - ✅ `git init` done, branch `main`.
 - [ ] Free Cloudflare account, for `wrangler login` and deploy. Local dev works without it.
+
+In dev builds only, `window.__box` exposes `{ state(), layout(), drawNow() }`. `drawNow()`
+exists because `requestAnimationFrame` never fires in a hidden tab, which otherwise makes
+the canvas impossible to inspect from automation. Stripped from production by
+`import.meta.env.DEV`.
 
 ```bash
 npm run dev      # Vite + the real Worker/DO in workerd, together, on :5173
@@ -400,26 +405,48 @@ worth far more than 10 boxes. That asymmetry is good design, not a bug. Keep the
 
 ### 10.1 Layers
 
+**ONE canvas, fully redrawn per frame, plus DOM for the HUD.** (Revised at M2 — this
+section previously specified a dirty-flag board layer and a separate per-frame fx layer.)
+
 | Layer | Type | Redraw |
 |---|---|---|
-| `board` | `<canvas>` | Dirty-flag only. Dots, placed lines, claimed box fills + initials. |
-| `fx` | `<canvas>` | Every frame. Pending line, box-claim pulses, particles, shrink warning, shatter pieces. |
-| `hud` | DOM + CSS | Scoreboard, shot clock ring, shop, toasts, buttons. |
+| `board` | `<canvas>` | Whole scene each frame: dots, lines, claimed boxes, initials, ghost, animations. |
+| `hud` | DOM + CSS | Scoreboard, shot clock ring, shop, pill, toasts, buttons. |
 
-At `SETTLING`, the board layer is snapshotted per-box into offscreen tiles, then handed to
-`fx` for the shatter. `board` clears. One code path, no duplication.
+**Measured at M2:** a full redraw of a completely filled 10×10 board (220 lines, 100 boxes
+with initials, 121 dots) takes **0.725 ms** — 23× under the 16.67 ms 60fps budget. A
+dirty-flag split would optimise something that is already 4% of a frame.
 
-All canvases are sized `cssPx * devicePixelRatio`, capped at DPR 2 (DPR 3 on a 12×12 board
-costs frames for no visible gain).
+The render loop is **on demand**: `stage.requestFrame()` schedules a frame, and the draw
+function returns whether any animation is still running. A turn-based game is idle most of
+the time, and a permanently-spinning RAF is pure battery burn for nothing. (`requestAnimationFrame`
+does not fire at all while the tab is hidden, so the stage also repaints on `visibilitychange`.)
+
+Two things keep the full redraw cheap, and both matter more than layer splitting:
+- dots are prerendered once into an offscreen sprite and blitted, rather than building a
+  radial gradient per dot per frame;
+- lines and box fills are batched into **one path per player**, so `shadowBlur` is set ~8
+  times a frame instead of ~450.
+
+The canvas is sized `cssPx * devicePixelRatio`, capped at DPR 2 (DPR 3 costs fill rate for
+a difference nobody can see on a 6" screen).
+
+**M7 revisit:** the shatter needs per-box tiles moving independently. Add a second canvas
+*then*, if measurement says to — the stage abstraction already supports it.
 
 ### 10.2 Input
 
-- **Primary: tap-nearest-legal-line.** Project the tap into board space, find the nearest
-  *unoccupied* line midpoint. Accept within `0.45 × cellSize`. Reject ambiguous taps where
-  the two nearest candidates are within 15% of each other — show a brief "aim" hint rather
-  than guessing wrong.
+- **Primary: tap-nearest-legal-line.** Project the tap into dot space, generate the nearest
+  horizontal and nearest vertical candidate, take the closer *legal* one. Accept within
+  `0.45 × cellSize`. Reject ambiguous taps where the two candidates are within 15% of each
+  other — show a brief "aim" hint rather than guessing wrong.
+- ⚠️ **Distance is measured to the nearest point ON the segment, not to its midpoint.**
+  A midpoint metric looks equivalent and is not: a tap right beside a dot sits ~0.05 cells
+  from two lines but ~0.45 from both of their *midpoints*, so it silently swallows taps
+  near every intersection on the board. Caught by a unit test at M2; do not "simplify" it back.
 - **Secondary: drag from a dot** to an adjacent dot. Ghost line follows the finger; release
-  commits. Better on small grids, and it feels great.
+  commits. Movement past 8 px switches from tap to drag. Non-adjacent and diagonal releases
+  are ignored rather than snapped.
 - **Confirm-tap: on by default for grids ≥ 10×10**, off below. First tap ghosts the line,
   second commits; tapping elsewhere re-targets. The 12s clock affords this comfortably, and
   a misplaced line is far more painful than a slow turn. Player-overridable in settings.
@@ -578,8 +605,13 @@ public). Duck to 4 concurrent voices max.
       continuation clock, skip/park/resume, all-parked pause, Wildcard buy/burn/arm/fire,
       win + tie detection, and the score-equals-owned-boxes invariant over full games.
       Shrinking board is deliberately *not* here yet — it lands in M5.
-- [ ] **M2 — Board renderer.** Canvas stage, DPR handling, dots + lines + claimed boxes.
-      Hot-seat local play, no network. Tap and drag input working on a real phone.
+- [x] **M2 — Board renderer.** ✅ 2026-07-30. Canvas stage with DPR cap and on-demand RAF,
+      dots/lines/claimed boxes/initials, draw-on and claim-pulse animations, tap + drag +
+      confirm-tap input, scoreboard with shot-clock ring, and hot-seat play end to end.
+      Verified in-browser: full 2-player game to a correct tie, full 8-player 10×10 board
+      filled via confirm-tap, pixel assertions on dot/line/box-fill/initial colours, and
+      0.725 ms/frame on a full 10×10 board.
+      *The shot clock here is local and throwaway — M3 replaces it with a server deadline.*
 - [ ] **M3 — Networking.** `GameRoom` DO, room codes, join/lobby/start, authoritative turn
       loop, shot clock via DO alarm. Two phones playing over the internet.
 - [ ] **M4 — Resilience.** Reconnect + snapshot, benching, spectators, rematch.
