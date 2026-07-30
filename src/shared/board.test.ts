@@ -17,7 +17,14 @@ import {
   lineEndpoints,
   vLineId,
 } from "./board.ts";
-import { gridSizeFor, MAX_GRID, MIN_GRID } from "./constants.ts";
+import {
+  BOARD_PRESETS,
+  estimatedMinutes,
+  gridSizeFor,
+  MAX_GRID,
+  MIN_GRID,
+  presetForGrid,
+} from "./constants.ts";
 
 describe("board geometry", () => {
   it("counts lines, boxes and dots", () => {
@@ -136,29 +143,40 @@ describe("board geometry", () => {
   });
 });
 
-describe("grid sizing", () => {
-  it("matches the table in PROJECT.md", () => {
-    const expected: Record<number, number> = {
-      2: 8,
-      3: 8,
-      4: 8,
-      5: 9,
-      6: 9,
-      7: 10,
-      8: 10,
-    };
-    for (const [players, grid] of Object.entries(expected)) {
-      assert.equal(gridSizeFor(Number(players)), grid, `${players} players`);
+describe("board presets", () => {
+  it("defaults to Medium, and Large once the lobby gets big", () => {
+    for (const players of [2, 3, 4, 5, 6]) {
+      assert.equal(gridSizeFor(players), 8, `${players} players`);
+    }
+    for (const players of [7, 8]) {
+      assert.equal(gridSizeFor(players), 10, `${players} players`);
     }
   });
 
-  it("stays inside its bounds and never shrinks as players are added", () => {
-    let prev = 0;
+  it("always defaults to a size the host could have picked", () => {
+    // Otherwise the lobby would show no preset selected, which looks broken.
     for (let p = 2; p <= 8; p++) {
-      const g = gridSizeFor(p);
-      assert.ok(g >= MIN_GRID && g <= MAX_GRID);
-      assert.ok(g >= prev);
-      prev = g;
+      const grid = gridSizeFor(p);
+      assert.notEqual(presetForGrid(grid), null, `${p} players -> ${grid} is not a preset`);
+      assert.ok(grid >= MIN_GRID && grid <= MAX_GRID);
+    }
+  });
+
+  it("offers presets that grow, and maps each back to itself", () => {
+    let prev = 0;
+    for (const preset of BOARD_PRESETS) {
+      assert.ok(preset.grid > prev, "presets should run small to large");
+      assert.equal(presetForGrid(preset.grid), preset.key);
+      prev = preset.grid;
+    }
+    assert.equal(presetForGrid(7), null, "sizes that are not presets map to null");
+  });
+
+  it("estimates length growing quadratically with the grid", () => {
+    const times = BOARD_PRESETS.map((p) => estimatedMinutes(p.grid));
+    assert.deepEqual(times, [8, 14, 22, 31]);
+    for (let i = 1; i < times.length; i++) {
+      assert.ok(times[i]! > times[i - 1]!, "bigger boards must read as longer");
     }
   });
 });

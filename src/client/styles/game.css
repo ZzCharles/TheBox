@@ -239,13 +239,73 @@ input:focus-visible {
 
 /* Game shell ------------------------------------------------------------ */
 
+/*
+ * Every row outside .board-wrap holds a FIXED height for the whole game.
+ * Anything that appears or disappears resizes the board and re-triggers the
+ * canvas resize, which reads as the screen jumping on every move.
+ */
+
+.game-head {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 2rem 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.25rem;
+  padding: 0 0.25rem;
+}
+
+.icon-btn {
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: none;
+  color: var(--text-dim);
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-btn:active {
+  background: var(--surface);
+}
+
+.now-playing {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 200ms ease;
+}
+
+.code-chip {
+  border: 1px solid #2a3040;
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+}
+
 .turn-banner {
   flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  /* Fixed, so switching between "Your turn" and a long name never reflows. */
+  height: 1.9rem;
   text-align: center;
-  padding: 0.4rem;
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .turn-banner.mine {
@@ -267,26 +327,36 @@ input:focus-visible {
   color: #a78bfa;
 }
 
+/*
+ * Rendered only in twist mode, but once rendered it stays in the layout for the
+ * whole game and greys out instead of vanishing.
+ */
 .shop {
   flex: 0 0 auto;
   display: flex;
   justify-content: center;
+  align-items: center;
   gap: 0.5rem;
-  padding: 0.4rem 0.5rem 0;
-}
-
-.shop[hidden] {
-  display: none;
+  height: 2.4rem;
 }
 
 .shop .chip {
   min-width: 0;
   padding: 0.45rem 0.8rem;
   font-size: 0.8rem;
+  transition: opacity 160ms ease;
 }
 
 .shop .chip:disabled {
-  opacity: 0.35;
+  opacity: 0.3;
+  cursor: default;
+}
+
+.shop .chip.selected {
+  border-color: var(--dot);
+  background: rgb(255 194 75 / 14%);
+  color: var(--dot);
+  opacity: 1;
 }
 
 

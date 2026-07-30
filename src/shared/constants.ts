@@ -45,20 +45,40 @@ export const MAX_SPECTATORS = 20;
 
 // ------------------------------------------------------------ board size ---
 
-export const MIN_GRID = 8;
-export const MAX_GRID = 10;
-/** The host can go bigger, with a "this will run ~30 min" warning in the lobby. */
-export const MAX_GRID_HOST_OVERRIDE = 12;
+export const MIN_GRID = 6;
+export const MAX_GRID = 12;
 
 /**
- * A game is `2n(n+1)` moves long — lines, not boxes, set the clock. This curve
- * targets 15-22 minutes at a 12s cap (~6s real average per move).
+ * Board sizes the host can pick from in the lobby.
  *
- *   2-4 players -> 8x8    5-6 -> 9x9    7-8 -> 10x10
+ * A game is `2n(n+1)` MOVES long — lines, not boxes, set the clock — so length
+ * grows quadratically. Naming them beats showing raw grid dimensions, because
+ * "10x10" tells nobody it is a twenty-minute commitment.
+ */
+export const BOARD_PRESETS = [
+  { key: "small", label: "Small", grid: 6 },
+  { key: "medium", label: "Medium", grid: 8 },
+  { key: "large", label: "Large", grid: 10 },
+  { key: "grand", label: "Grand", grid: 12 },
+] as const;
+
+export type BoardPresetKey = (typeof BOARD_PRESETS)[number]["key"];
+
+export function presetForGrid(grid: number): BoardPresetKey | null {
+  return BOARD_PRESETS.find((p) => p.grid === grid)?.key ?? null;
+}
+
+/**
+ * Default when the host hasn't chosen. Small lobbies get Medium; seven or eight
+ * players get Large so nobody ends up with a handful of boxes each.
  */
 export function gridSizeFor(playerCount: number): number {
-  const raw = Math.round(Math.sqrt(playerCount * 7 + 42));
-  return Math.min(MAX_GRID, Math.max(MIN_GRID, raw));
+  return playerCount >= 7 ? 10 : 8;
+}
+
+/** Rough wall-clock length, at ~6s of real thinking per move. */
+export function estimatedMinutes(n: number): number {
+  return Math.round((2 * n * (n + 1) * 6) / 60);
 }
 
 // ------------------------------------------------------------ twist mode ---

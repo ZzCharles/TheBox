@@ -27,7 +27,13 @@ import {
   skipTurn,
   type GameState,
 } from "../../shared/rules.ts";
-import { MAX_WILDCARD_CHARGES, WILDCARD_COST } from "../../shared/constants.ts";
+import {
+  BOARD_PRESETS,
+  estimatedMinutes,
+  gridSizeFor,
+  MAX_WILDCARD_CHARGES,
+  WILDCARD_COST,
+} from "../../shared/constants.ts";
 import { exposeDebug } from "../devtools.ts";
 import { attachPointer } from "../input/pointer.ts";
 import { clientId, storedName } from "../net/identity.ts";
@@ -154,6 +160,19 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
   }
 
   /**
+   * Leaving is deliberately just navigation: the seat is held by clientId, so
+   * returning to the same code drops you into the same slot with your score.
+   *
+   * Goes home explicitly rather than calling `history.back()`, which would walk
+   * into whatever room you were in before. Android's hardware back key still
+   * does the normal history thing — the router handles it via `hashchange`,
+   * disposing the view and closing the socket.
+   */
+  function leaveGame() {
+    location.hash = "#/";
+  }
+
+  /**
    * Replay a timeout locally through the same `skipTurn` the server ran, rather
    * than asking for a fresh snapshot. Keeps bench flags and turn order in
    * lockstep with no extra round-trip.
@@ -232,6 +251,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
   function mountLobby() {
     root.innerHTML = `
       <main class="setup lobby">
+        <button class="linkish" id="leave">‹ Leave</button>
         <p class="tag">room code</p>
         <h1 class="code">${escapeHtml(code)}</h1>
         <button class="chip" id="share">Copy invite link</button>
@@ -249,6 +269,15 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
             <button class="chip" data-mode="twist">Twist</button>
           </div>
           <p class="hint" id="mode-note"></p>
+        </section>
+
+        <section>
+          <h2>Board</h2>
+          <div class="chips" id="sizes">
+            ${BOARD_PRESETS.map(
+              (p) => `<button class="chip" data-grid="${p.grid}">${p.label}</button>`,
+            ).join("")}
+          </div>
         </section>
 
         <p class="hint" id="grid"></p>
@@ -272,10 +301,17 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
 
     const modes = root.querySelector<HTMLElement>("#modes")!;
     const modeNote = root.querySelector<HTMLElement>("#mode-note")!;
+    const sizes = root.querySelector<HTMLElement>("#sizes")!;
+
     modes.addEventListener("click", (e) => {
       const mode = (e.target as HTMLElement).dataset.mode;
       if (mode === "simple" || mode === "twist") net.send({ t: "configure", mode });
     });
+    sizes.addEventListener("click", (e) => {
+      const grid = Number((e.target as HTMLElement).dataset.grid);
+      if (grid > 0) net.send({ t: "configure", gridSize: grid });
+    });
+    root.querySelector<HTMLElement>("#leave")!.addEventListener("click", leaveGame);
     startBtn.addEventListener("click", () => net.send({ t: "start" }));
     root.querySelector<HTMLElement>("#share")!.addEventListener("click", () => {
       void navigator.clipboard
@@ -317,8 +353,12 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
           ? `Board shrinks · spend ${WILDCARD_COST} boxes for an extra line`
           : "Classic dots and boxes";
 
-      const n = room.config.gridSize || estimateGrid(room.players.length);
-      grid.textContent = `${n}×${n} board · ${n * n} boxes`;
+      const n = room.config.gridSize || gridSizeFor(room.players.length);
+      for (const chip of sizes.querySelectorAll<HTMLButtonElement>(".chip")) {
+        chip.classList.toggle("selected", Number(chip.dataset.grid) === n);
+        chip.disabled = !isHost;
+      }
+      grid.textContent = `${n}×${n} · ${n * n} boxes · about ${estimatedMinutes(n)} min`;
 
       readyBtn.textContent = self?.ready ? "Not ready" : "I'm ready";
       readyBtn.hidden = !self;
@@ -352,19 +392,46 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     const myIndex = room.players.findIndex((p) => p.id === me);
     const n = state.n;
 
+    const twist = state.mode === "twist";
+
+    // LAYOUT RULE: every row outside .board-wrap keeps a constant height for the
+    // whole game. Anything that appears and disappears resizes the board, which
+    // reads as the screen jumping on every turn.
     root.innerHTML = `
       <div class="game">
+        <header class="game-head">
+          <button class="icon-btn" id="back" aria-label="Leave game">‹</button>
+          <span class="now-playing" id="now-playing"></span>
+          <button class="code-chip" id="code-chip" title="Tap to copy the invite link">
+            ${escapeHtml(code)}
+          </button>
+        </header>
         <div id="scoreboard"></div>
         <div class="board-wrap"><div class="board" id="board"></div></div>
-        <div class="shop" id="shop" hidden>
-          <button class="chip" id="buy"></button>
-          <button class="chip" id="arm"></button>
-        </div>
+        ${
+          twist
+            ? `<div class="shop" id="shop">
+                 <button class="chip" id="buy"></button>
+                 <button class="chip" id="arm"></button>
+               </div>`
+            : ""
+        }
         <div class="turn-banner" id="banner"></div>
         <div class="pill" id="pill"></div>
         <div class="toast" id="toast"></div>
         <div class="overlay" id="overlay" hidden></div>
       </div>`;
+
+    root.querySelector<HTMLElement>("#back")!.addEventListener("click", leaveGame);
+    root.querySelector<HTMLElement>("#code-chip")!.addEventListener("click", () => {
+      // navigator.clipboard is secure-context only, so this silently does
+      // nothing over plain http on a LAN. Show the code either way.
+      void navigator.clipboard
+        ?.writeText(location.href)
+        .then(() => toast("Invite link copied"))
+        .catch(() => toast(`Room code ${code}`));
+      if (!navigator.clipboard) toast(`Room code ${code}`);
+    });
 
     const boardHost = root.querySelector<HTMLElement>("#board")!;
     const banner = root.querySelector<HTMLElement>("#banner")!;
@@ -496,41 +563,58 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       });
     }, CLOCK_TICK_MS);
 
-    const shop = root.querySelector<HTMLElement>("#shop")!;
-    const buyBtn = root.querySelector<HTMLButtonElement>("#buy")!;
-    const armBtn = root.querySelector<HTMLButtonElement>("#arm")!;
-    buyBtn.addEventListener("click", () => net.send({ t: "buy" }));
-    armBtn.addEventListener("click", () => net.send({ t: "arm" }));
+    const buyBtn = root.querySelector<HTMLButtonElement>("#buy");
+    const armBtn = root.querySelector<HTMLButtonElement>("#arm");
+    buyBtn?.addEventListener("click", () => net.send({ t: "buy" }));
+    armBtn?.addEventListener("click", () => net.send({ t: "arm" }));
 
+    /**
+     * In twist mode the powerup row is present from the first frame and simply
+     * greys out when unusable. It never leaves the layout — see the layout rule
+     * above.
+     */
     function updateShop() {
-      if (!state || spectating || state.mode !== "twist") {
-        shop.hidden = true;
-        return;
-      }
-      const myTurn = currentPlayer(state) === myIndex && state.phase === "playing";
-      shop.hidden = !myTurn;
-      if (!myTurn) return;
+      if (!buyBtn || !armBtn || !state) return;
 
       const score = state.scores[myIndex] ?? 0;
       const charges = state.charges[myIndex] ?? 0;
+      const myTurn =
+        !spectating && currentPlayer(state) === myIndex && state.phase === "playing";
 
       buyBtn.textContent = `Wildcard · ${WILDCARD_COST}`;
-      buyBtn.disabled = score < WILDCARD_COST || charges >= MAX_WILDCARD_CHARGES;
-      buyBtn.title =
-        score < WILDCARD_COST
+      buyBtn.disabled =
+        !myTurn || score < WILDCARD_COST || charges >= MAX_WILDCARD_CHARGES;
+      buyBtn.title = spectating
+        ? "You are watching this game"
+        : score < WILDCARD_COST
           ? `Costs ${WILDCARD_COST} boxes — you have ${score}`
-          : "Burns 10 of your boxes for one extra line";
+          : `Burns ${WILDCARD_COST} of your boxes for one extra line`;
 
-      armBtn.textContent = state.armed ? "Armed" : `Arm${charges > 1 ? ` ×${charges}` : ""}`;
-      armBtn.disabled = charges === 0 || state.armed;
+      armBtn.textContent = state.armed
+        ? "Armed"
+        : `Extra line${charges > 0 ? ` ×${charges}` : ""}`;
+      armBtn.disabled = !myTurn || charges === 0 || state.armed;
       armBtn.classList.toggle("selected", state.armed);
     }
+
+    const nowPlaying = root.querySelector<HTMLElement>("#now-playing")!;
 
     updateView = () => {
       if (!room || !state) return;
       syncBoardView();
       stage.requestFrame();
       updateShop();
+
+      const active = room.players[currentPlayer(state)];
+      nowPlaying.textContent =
+        state.phase === "over"
+          ? "Game over"
+          : state.paused
+            ? "Waiting for players"
+            : `Now playing · ${active?.name ?? "—"}`;
+      nowPlaying.style.color = active
+        ? (PLAYER_COLORS[active.colorIndex] ?? "")
+        : "";
 
       // Connection state outranks everything: if we are offline, nothing else
       // on screen is trustworthy, so say so rather than showing a stale turn.
@@ -644,10 +728,6 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
 function clockFraction(secondsLeft: number, state: GameState): number {
   const total = state.continuation ? 6 : 12;
   return Math.max(0, Math.min(1, secondsLeft / total));
-}
-
-function estimateGrid(players: number): number {
-  return Math.min(10, Math.max(8, Math.round(Math.sqrt(players * 7 + 42))));
 }
 
 let toastTimer = 0;

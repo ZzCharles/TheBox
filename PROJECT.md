@@ -2,7 +2,8 @@
 
 > **Working title:** BOX (rename pending — see Open Questions)
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M5 complete — the game is feature-complete. **Next: M6 — polish.**
+> **Status:** M0–M5 complete, M6 underway (layout/UX done, audio + set-pieces to go).
+> First LAN playtest passed — "it feels alright".
 > **Last updated:** 2026-07-31
 
 ---
@@ -344,32 +345,33 @@ For an `n × n` box grid there are `(n+1) × (n+1)` dots.
 `[n(n+1), 2n(n+1))`. Keep `lineIdToBoxes(id)` and `boxToLineIds(r,c)` as the only two
 functions that know this encoding — everything else uses ids.
 
-### 8.1 Grid sizing by player count
+### 8.1 Board size — host picks a named preset
 
-**A game is `2n(n+1)` moves long — lines, not boxes, set the clock.** At a 12s cap the real
-average move takes ~6s including deliberation and animation, so the grid is sized to land a
-full game in 15–20 minutes.
+**The host chooses Small / Medium / Large / Grand** (revised at M6). Raw grid dimensions
+mean nothing to a player — "10×10" does not communicate "this is a twenty-minute game" —
+so the lobby shows names plus an estimated length.
 
-| Players | Grid | Boxes | Lines | Est. length | Boxes/player |
-|---|---|---|---|---|---|
-| 2 | 8×8 | 64 | 144 | ~14 min | 32 |
-| 3 | 8×8 | 64 | 144 | ~14 min | 21 |
-| 4 | 8×8 | 64 | 144 | ~14 min | 16 |
-| 5 | 9×9 | 81 | 180 | ~18 min | 16 |
-| 6 | 9×9 | 81 | 180 | ~18 min | 13 |
-| 7 | 10×10 | 100 | 220 | ~22 min | 14 |
-| 8 | 10×10 | 100 | 220 | ~22 min | 12 |
+| Preset | Grid | Boxes | Lines | Est. length |
+|---|---|---|---|---|
+| Small | 6×6 | 36 | 84 | ~8 min |
+| Medium | 8×8 | 64 | 144 | ~14 min |
+| Large | 10×10 | 100 | 220 | ~22 min |
+| Grand | 12×12 | 144 | 312 | ~31 min |
 
-Formula: `gridSize = clamp(round(sqrt(players * 7 + 42)), 8, 10)`. Host may override up to
-12×12, with a "this will run ~30 min" warning in the lobby.
+`gridSizeFor(players)` supplies the default when the host hasn't chosen: **Medium** up to 6
+players, **Large** at 7–8. It must always return a value that *is* a preset, or the lobby
+shows no chip selected and looks broken — there's a test for that.
 
-**Why the cap dropped from 12×12 to 10×10:** moving 5s → 12s more than doubles wall-clock
-time per move. The grid has to shrink to compensate, or an 8-player game runs half an hour.
-Smaller cells were never the constraint — 10×10 also gives noticeably better tap targets.
+Length is `2n(n+1)` moves at ~6s each; it grows quadratically, which is why Grand is nearly
+four times Small.
 
-**More players should not mean a much bigger board.** Eight people on a 10×10 board is
-*more* contested and more interesting, not cramped. Growing the grid to preserve
-"boxes per player" mostly just adds waiting.
+**More players should not force a much bigger board.** Eight people on a 10×10 board is
+*more* contested and more interesting, not cramped. Growing the grid to hold
+"boxes per player" constant mostly just adds waiting. That's why the presets top out at
+Grand and the default only steps up once.
+
+**Grand is deliberately available and deliberately not a default.** ~31 minutes is a real
+commitment, which is exactly why the lobby prints the estimate next to the choice.
 
 ---
 
@@ -445,6 +447,30 @@ worth far more than 10 boxes. That asymmetry is good design, not a bug. Keep the
 ---
 
 ## 10. Client rendering
+
+### 10.0 Game screen layout — fixed rows, one flexible board
+
+```
+ header      back · "Now playing · Ada" · room code      2.25rem, fixed
+ scoreboard  avatars, scores, shot-clock rings           auto, stable
+ board       <canvas>                                    flex: 1  ← only this moves
+ shop        twist mode only, always present             2.4rem, fixed
+ banner      turn / parked / reconnecting                1.9rem, fixed
+```
+
+**INVARIANT: every row outside `.board-wrap` keeps a constant height for the whole game.**
+
+Anything that appears or disappears resizes the board, which fires the `ResizeObserver`,
+which resizes the canvas — and the whole screen visibly jumps. Found at M6: the shop used
+`hidden` and toggled per turn, moving the board **39 px on every single move**. Measured
+before and after; it is now one distinct height across a whole game.
+
+Consequences to preserve:
+- The powerup row renders only in twist mode, but once rendered it stays and **greys out**
+  rather than vanishing. Players also need to see a power exists before they can afford it.
+- The banner has a fixed height and `white-space: nowrap`, so a long name can't reflow it.
+- The room code lives in the header all game, because a **parked player rejoins by code**
+  and otherwise has no way to read it.
 
 ### 10.1 Layers
 
@@ -684,8 +710,16 @@ public). Duck to 4 concurrent voices max.
       continuation.
       *The collapse is instant, not animated — tiles flying to the scoreboard shares code
       with the endgame shatter and lands in M7.*
-- [ ] **M6 — Polish pass 1.** Play button + carpet-in, line/claim animations, audio,
-      scoreboard, shot clock ring, full visual token pass.
+- [ ] **M6 — Polish pass 1.** Play button + carpet-in, audio, full visual token pass.
+      - [x] Game-screen header: back, "Now playing · name", room code (2026-07-31)
+      - [x] Board-size presets in the lobby, with length estimates (2026-07-31)
+      - [x] Fixed-height rows — killed the 39 px board jump on every move (2026-07-31)
+      - [x] Powerup row always visible in twist, greyed when unusable (2026-07-31)
+      - [x] Leave button + Android hardware back (2026-07-31)
+      - [ ] Audio: tick, click, thunk, whoosh, clack, blip, fanfare
+      - [ ] Play button with the hinged lid + screen shake
+      - [ ] Carpet-in dot animation
+      - [ ] Visual token pass across every screen
 - [ ] **M7 — Endgame sequence.** Crack, flight, clacks, count-up, victory.
 - [ ] **M8 — PWA + ship.** Manifest, service worker, icons, offline shell, custom domain.
       **Playtest with 6 real people.**

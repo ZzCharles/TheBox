@@ -33,7 +33,11 @@
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run build 2>&1 | Select-Object -Last 10)",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; \"=== wrangler auth state ===\"; npx wrangler whoami 2>&1 | Select-Object -First 20)",
       "PowerShell(\"=== is the dev server listening on 5173? ===\"; try { $c = Test-NetConnection -ComputerName localhost -Port 5173 -InformationLevel Quiet -WarningAction SilentlyContinue; \"port 5173 open: $c\" } catch { \"check failed\" }; \"=== node processes ===\"; Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, StartTime | Format-Table -AutoSize | Out-String)",
-      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run check 2>&1 | Select-Object -Last 10; \"=== tests ===\"; npm test 2>&1 | Select-Object -Last 7)"
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run check 2>&1 | Select-Object -Last 10; \"=== tests ===\"; npm test 2>&1 | Select-Object -Last 7)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; \"=== running wrangler with no shim at all ===\"; node \"node_modules\\\\wrangler\\\\bin\\\\wrangler.js\" --version 2>&1 | Select-Object -First 5)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 12)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run build 2>&1 | Select-Object -Last 8; \"=== tests ===\"; npm test 2>&1 | Select-Object -Last 7)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; $msg = \"C:\\\\Users\\\\rabin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-rabin-Desktop-Projects-Box\\\\10a37a6c-5349-4738-8ce6-7836067d810f\\\\scratchpad\\\\commit-m6a.txt\"; git add -A; git -c user.name=\"rabin\" -c user.email=\"reshipal777@gmail.com\" commit -q -F $msg; git log --oneline | Select-Object -First 3; \"=== working tree ===\"; git status --short | Select-Object -First 5)"
     ]
   }
 }
