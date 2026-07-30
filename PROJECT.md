@@ -2,7 +2,7 @@
 
 > **Working title:** BOX (rename pending — see Open Questions)
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M2 complete. **Next: M3 — networking.**
+> **Status:** M0–M3 complete. **Next: M4 — resilience.**
 > **Last updated:** 2026-07-30
 
 ---
@@ -195,6 +195,8 @@ storage after every mutation (cheap, and survives eviction).
 
 - `LOBBY` — players join/leave/ready. Host configures mode, player cap, grid size, clock.
 - `COUNTDOWN` — 3s, non-cancellable. Locks the roster. Late joins become spectators.
+  *Not built at M3 — start goes straight to `PLAYING`, and the roster locks there instead.
+  The countdown arrives with the Play-button sequence in M6.*
 - `PLAYING` — the turn loop.
 - `SETTLING` — final box claimed. Server freezes state, sends `gameOver`, waits ~5s for
   clients to run the shatter sequence.
@@ -286,10 +288,22 @@ JSON over WebSocket. Every message is `{ t: string, ...payload }`. Include
 | `rematchState` | `readyIds[], promotedSpectators[]` |
 | `error` | `code, message` |
 
-**Snapshot encoding.** For reconnects, send the whole board compactly:
-`lines` as a `Uint8Array` (0 = empty, otherwise `playerIndex + 1`), `boxes` as `Int8Array`
-(`-1` = unclaimed, `-2` = spent, otherwise `playerIndex`), both base64'd. A 13×13 board is
-364 lines + 169 boxes ≈ 710 bytes raw, ~950 base64. Trivial.
+**Snapshot encoding.** Plain number arrays, not base64'd typed arrays (revised at M3).
+A 10×10 board is ~320 small integers, sent only on join and reconnect, and it compresses
+well over the socket. Being able to read a snapshot in devtools is worth more than the
+~600 bytes. `src/shared/snapshot.ts` converts to and from the live typed arrays and is
+tested for lossless round-tripping, including through `JSON.parse(JSON.stringify(...))`.
+
+**The client replays, it does not trust.** Every `move` and `skip` broadcast is re-applied
+locally through the *same* `applyMove` / `skipTurn` the server ran, rather than the client
+patching in scores from the wire. Server and client therefore recompute identical state
+from identical inputs, and a mismatch is a loud bug (dev builds warn on score divergence)
+instead of a silent drift. If a replay fails, the client re-sends `hello`, which returns a
+full snapshot — cheaper and safer than trying to reconcile.
+
+**Bench state has two sources — use the game state.** A timeout only broadcasts `skip`, so
+`RoomSnapshot.players[].benched` stays stale until the next full room broadcast. The UI
+must read `state.benched[myIndex]`, which the local replay keeps current.
 
 ---
 
@@ -612,8 +626,14 @@ public). Duck to 4 concurrent voices max.
       filled via confirm-tap, pixel assertions on dot/line/box-fill/initial colours, and
       0.725 ms/frame on a full 10×10 board.
       *The shot clock here is local and throwaway — M3 replaces it with a server deadline.*
-- [ ] **M3 — Networking.** `GameRoom` DO, room codes, join/lobby/start, authoritative turn
-      loop, shot clock via DO alarm. Two phones playing over the internet.
+- [x] **M3 — Networking.** ✅ 2026-07-30. `GameRoom` Durable Object with hibernation, room
+      codes with claim-on-create, landing/lobby/game screens, hash routing so an invite link
+      is just a URL, authoritative turn loop, and the shot clock on a DO alarm.
+      Verified with two independent browser tabs and with raw dual-socket protocol tests:
+      out-of-turn moves rejected, non-host start rejected, moves broadcast to both, the
+      6s continuation clock arriving over the wire, timeout → skip → park → pause, `wake`
+      un-parking and resuming, and reconnect restoring the same seat with the full board.
+      *Spectators, rematch voting, and disconnect-grace benching are M4.*
 - [ ] **M4 — Resilience.** Reconnect + snapshot, benching, spectators, rematch.
       *Test by killing wifi mid-turn.*
 - [ ] **M5 — Twist mode.** Shrinking board + warning ring. Wildcard purchase, box burning,

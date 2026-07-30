@@ -1,51 +1,49 @@
-import { Server, routePartykitRequest, type Connection } from "partyserver";
+import { getServerByName, routePartykitRequest } from "partyserver";
 
-import { PROTOCOL_VERSION } from "../shared/constants.ts";
+import { GameRoom } from "./GameRoom.ts";
+import { isValidCode, normaliseCode, randomCode } from "./codes.ts";
 
-/**
- * One Durable Object per lobby. Holds the authoritative game state, owns the
- * shot clock via `ctx.storage.setAlarm`, and fans events out over WebSockets.
- *
- * M0: connection plumbing only. The turn loop lands in M3.
- */
-export class GameRoom extends Server<Env> {
-  /**
-   * Hibernation lets an idle lobby cost nothing while keeping sockets open.
-   * Any state that must survive hibernation has to live in storage, not on
-   * `this` — see M3 before adding instance fields.
-   */
-  static override options = { hibernate: true };
+export { GameRoom };
 
-  override onConnect(connection: Connection) {
-    connection.send(
-      JSON.stringify({
-        t: "welcome",
-        protocolVersion: PROTOCOL_VERSION,
-        room: this.name,
-        connectionId: connection.id,
-      }),
-    );
-  }
+/** Attempts before giving up on finding a free room code. */
+const CREATE_ATTEMPTS = 8;
 
-  override onMessage(connection: Connection, message: string | ArrayBuffer) {
-    // M3 replaces this with the real protocol handler.
-    if (typeof message !== "string") return;
-    connection.send(JSON.stringify({ t: "echo", payload: message }));
-  }
-
-  override onAlarm() {
-    // M3: shot clock expiry -> skipTurn() -> broadcast.
-  }
-}
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+
+    // POST /api/room -> mint a room code nobody is using.
+    if (url.pathname === "/api/room" && request.method === "POST") {
+      for (let attempt = 0; attempt < CREATE_ATTEMPTS; attempt++) {
+        const code = randomCode();
+        const room = await getServerByName(env.GameRoom, code);
+        if (await room.claim()) return json({ code });
+      }
+      return json({ error: "Could not allocate a room code" }, 503);
+    }
+
+    // GET /api/room/:code -> check a code before trying to connect, so a typo
+    // gives a clear message instead of an empty lobby.
+    const lookup = url.pathname.match(/^\/api\/room\/([^/]+)$/);
+    if (lookup && request.method === "GET") {
+      const code = normaliseCode(lookup[1] ?? "");
+      if (!isValidCode(code)) return json({ exists: false, code }, 400);
+      const room = await getServerByName(env.GameRoom, code);
+      return json({ exists: await room.exists(), code });
+    }
+
     const routed = await routePartykitRequest(request, env);
     if (routed) return routed;
 
     // Static assets are served ahead of the Worker for everything except the
-    // /parties/* routes (see `run_worker_first` in wrangler.jsonc), so anything
-    // arriving here is a genuine miss.
+    // routes in `run_worker_first` (see wrangler.jsonc), so anything arriving
+    // here is a genuine miss.
     return new Response("Not found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;

@@ -36,13 +36,25 @@ import { createScoreboard, type Scoreboard } from "./scoreboard.ts";
 const INITIALS = "ABCDEFGH";
 const CLOCK_TICK_MS = 50;
 
-export function mountHotseat(root: HTMLElement): void {
-  renderSetup(root);
+/** Returns a disposer, so the router can tear the game down on navigation. */
+export function mountHotseat(root: HTMLElement): () => void {
+  let active: (() => void) | null = null;
+  const setActive = (fn: (() => void) | null) => {
+    active = fn;
+  };
+  renderSetup(root, setActive);
+  return () => {
+    active?.();
+    active = null;
+  };
 }
+
+type SetActive = (fn: (() => void) | null) => void;
 
 // ------------------------------------------------------------------ setup ---
 
-function renderSetup(root: HTMLElement) {
+function renderSetup(root: HTMLElement, setActive: SetActive) {
+  setActive(null);
   root.innerHTML = `
     <main class="setup">
       <h1>BOX</h1>
@@ -63,8 +75,13 @@ function renderSetup(root: HTMLElement) {
 
       <button class="primary" id="play">Play</button>
       <p class="hint" id="hint"></p>
+      <button class="linkish" id="back">Play online instead</button>
     </main>
   `;
+
+  root.querySelector<HTMLElement>("#back")!.addEventListener("click", () => {
+    location.hash = "#/";
+  });
 
   const counts = root.querySelector<HTMLElement>("#counts")!;
   const hint = root.querySelector<HTMLElement>("#hint")!;
@@ -92,13 +109,13 @@ function renderSetup(root: HTMLElement) {
   updateHint();
 
   root.querySelector<HTMLElement>("#play")!.addEventListener("click", () => {
-    startGame(root, selected);
+    startGame(root, selected, setActive);
   });
 }
 
 // ------------------------------------------------------------------- game ---
 
-function startGame(root: HTMLElement, playerCount: number) {
+function startGame(root: HTMLElement, playerCount: number, setActive: SetActive) {
   const n = gridSizeFor(playerCount);
   const players: PlayerView[] = Array.from({ length: playerCount }, (_, i) => ({
     name: `Player ${i + 1}`,
@@ -292,7 +309,7 @@ function startGame(root: HTMLElement, playerCount: number) {
     `;
     overlay.querySelector<HTMLElement>("#again")!.addEventListener("click", () => {
       teardown();
-      renderSetup(root);
+      renderSetup(root, setActive);
     });
 
     refreshScoreboard(performance.now());
@@ -307,6 +324,7 @@ function startGame(root: HTMLElement, playerCount: number) {
     scoreboard.destroy();
   }
 
+  setActive(teardown);
   beginTurn();
   refreshScoreboard(performance.now());
   stage.requestFrame();

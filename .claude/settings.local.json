@@ -16,7 +16,12 @@
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 45)",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 40)",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run check 2>&1 | Select-Object -Last 25)",
-      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 10; \"=== build ===\"; npm run build 2>&1 | Select-Object -Last 14)"
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 10; \"=== build ===\"; npm run build 2>&1 | Select-Object -Last 14)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; \\(Get-Content src/server/GameRoom.ts -Raw\\) -replace 'private broadcast\\\\\\(msg: ServerMessage\\\\\\)', 'private emit\\(msg: ServerMessage\\)' -replace 'this\\\\.broadcast\\\\\\(\\\\{', 'this.emit\\({' | Set-Content src/server/GameRoom.ts -Encoding utf8 -NoNewline; Select-String -Path src/server/GameRoom.ts -Pattern 'emit\\\\\\(|broadcast' | ForEach-Object { \"$\\($_.LineNumber\\): $\\($_.Line.Trim\\(\\)\\)\" })",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npx tsc -p tsconfig.worker.json --noEmit 2>&1 | Select-Object -Last 25)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 20)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run check 2>&1 | Select-Object -Last 20)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 9; \"=== build ===\"; npm run build 2>&1 | Select-Object -Last 10)"
     ]
   }
 }
