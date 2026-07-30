@@ -263,6 +263,10 @@ input:focus-visible {
   color: #f87171;
 }
 
+.turn-banner.spectating {
+  color: #a78bfa;
+}
+
 
 .game {
   position: fixed;

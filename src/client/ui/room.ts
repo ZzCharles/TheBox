@@ -62,15 +62,16 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
 
   function handle(msg: ServerMessage) {
     switch (msg.t) {
+      // Whether we are playing or spectating is derived from the roster in
+      // these snapshots, never tracked separately — one source of truth cannot
+      // disagree with itself.
       case "welcome":
-        room = msg.room;
-        state = msg.room.game ? fromSnapshot(msg.room.game) : null;
-        break;
-
       case "room":
         room = msg.room;
-        // A fresh snapshot always wins over locally replayed state.
+        // A fresh snapshot always wins over locally replayed state, and any
+        // in-flight tween describes a board that may no longer exist.
         state = msg.room.game ? fromSnapshot(msg.room.game) : null;
+        resetAnimations?.();
         break;
 
       case "move":
@@ -138,6 +139,8 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
 
   /** Set by the game view so board animations can fire on broadcast moves. */
   let onMoveRendered: ((lineId: number, claimed: number[]) => void) | null = null;
+  /** Set by the game view; drops tweens that a fresh snapshot has invalidated. */
+  let resetAnimations: (() => void) | null = null;
 
   // ------------------------------------------------------------- view swap ---
 
@@ -148,6 +151,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       disposeView = null;
       updateView = null;
       onMoveRendered = null;
+      resetAnimations = null;
       view = want;
       if (want === "connecting") mountConnecting();
       else if (want === "lobby") mountLobby();
@@ -181,6 +185,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         <section>
           <h2>Players <span id="count"></span></h2>
           <ul class="roster" id="roster"></ul>
+          <p class="hint" id="watching"></p>
         </section>
 
         <p class="hint" id="grid"></p>
@@ -191,6 +196,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
 
     const roster = root.querySelector<HTMLElement>("#roster")!;
     const count = root.querySelector<HTMLElement>("#count")!;
+    const watching = root.querySelector<HTMLElement>("#watching")!;
     const grid = root.querySelector<HTMLElement>("#grid")!;
     const readyBtn = root.querySelector<HTMLButtonElement>("#ready")!;
     const startBtn = root.querySelector<HTMLButtonElement>("#start")!;
@@ -227,10 +233,15 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         )
         .join("");
 
+      watching.textContent = room.spectators.length
+        ? `${room.spectators.map((s) => s.name).join(", ")} watching`
+        : "";
+
       const n = room.config.gridSize || estimateGrid(room.players.length);
       grid.textContent = `${n}×${n} board · ${n * n} boxes`;
 
       readyBtn.textContent = self?.ready ? "Not ready" : "I'm ready";
+      readyBtn.hidden = !self;
       startBtn.hidden = !isHost;
 
       const everyoneReady =
@@ -312,7 +323,10 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       (s) => renderer.resize(s.width, s.height, n),
     );
 
+    const spectating = myIndex < 0;
+
     const isMyTurn = () =>
+      !spectating &&
       !!state &&
       state.phase === "playing" &&
       !state.paused &&
@@ -346,6 +360,15 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       if (pending === lineId) pending = null;
       renderer.animateLine(lineId, now);
       for (const box of claimed) renderer.animateBox(box, now);
+      stage.requestFrame();
+    };
+
+    resetAnimations = () => {
+      // After a reconnect the board may have moved on by several lines. Snap
+      // every in-flight tween to its end state rather than animating history.
+      renderer.reset();
+      pending = null;
+      ghost = null;
       stage.requestFrame();
     };
 
@@ -390,17 +413,24 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       syncBoardView();
       stage.requestFrame();
 
-      // Bench state comes from the replayed game state, not the room snapshot —
-      // a timeout only broadcasts `skip`, so `room.players[].benched` is stale
-      // until the next full room broadcast.
-      if (state.benched[myIndex] === 1) {
-        banner.textContent = "You're parked — tap to return";
-        banner.className = "turn-banner parked";
-        banner.onclick = () => net.send({ t: "wake" });
-      } else if (status !== "open") {
+      // Connection state outranks everything: if we are offline, nothing else
+      // on screen is trustworthy, so say so rather than showing a stale turn.
+      if (status !== "open") {
         banner.textContent = status === "reconnecting" ? "Reconnecting…" : "Connecting…";
         banner.className = "turn-banner away";
         banner.onclick = null;
+      } else if (spectating) {
+        banner.textContent = "Watching — you're in the next game";
+        banner.className = "turn-banner spectating";
+        banner.onclick = null;
+      }
+      // Bench state comes from the replayed game state, not the room snapshot —
+      // a timeout only broadcasts `skip`, so `room.players[].benched` is stale
+      // until the next full room broadcast.
+      else if (state.benched[myIndex] === 1) {
+        banner.textContent = "You're parked — tap to return";
+        banner.className = "turn-banner parked";
+        banner.onclick = () => net.send({ t: "wake" });
       } else if (state.paused) {
         banner.textContent = "Waiting for players";
         banner.className = "turn-banner";
@@ -421,20 +451,46 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     };
 
     function showResult() {
-      if (!room || !state || !overlay.hidden) return;
-      const names = state.winners.map((w) => room!.players[w]?.name ?? "?").join(" & ");
-      const top = state.scores[state.winners[0] ?? 0] ?? 0;
-      overlay.hidden = false;
-      overlay.innerHTML = `
-        <div class="result">
-          <p class="label">${state.winners.length > 1 ? "Draw" : "Winner"}</p>
-          <h2>${escapeHtml(names)}</h2>
-          <p class="score-line">${top} boxes</p>
-          ${room.hostId === me ? '<button class="primary" id="rematch">Rematch</button>' : '<p class="hint">Waiting for the host…</p>'}
-        </div>`;
-      overlay
-        .querySelector<HTMLElement>("#rematch")
-        ?.addEventListener("click", () => net.send({ t: "rematch" }));
+      if (!room || !state) return;
+
+      if (overlay.hidden) {
+        const names = state.winners.map((w) => room!.players[w]?.name ?? "?").join(" & ");
+        const top = state.scores[state.winners[0] ?? 0] ?? 0;
+        overlay.hidden = false;
+        overlay.innerHTML = `
+          <div class="result">
+            <p class="label">${state.winners.length > 1 ? "Draw" : "Winner"}</p>
+            <h2>${escapeHtml(names)}</h2>
+            <p class="score-line">${top} boxes</p>
+            ${
+              spectating
+                ? '<p class="hint">You join the next game</p>'
+                : '<button class="primary" id="rematch">Rematch</button>'
+            }
+            <p class="hint" id="votes"></p>
+          </div>`;
+        overlay
+          .querySelector<HTMLElement>("#rematch")
+          ?.addEventListener("click", () => net.send({ t: "rematch" }));
+      }
+
+      // Rematch is a vote — everyone still connected has to agree.
+      const present = room.players.filter((p) => p.connected);
+      const voted = present.filter((p) => p.ready);
+      const button = overlay.querySelector<HTMLButtonElement>("#rematch");
+      const self = room.players.find((p) => p.id === me);
+      if (button) button.textContent = self?.ready ? "Waiting…" : "Rematch";
+
+      const votes = overlay.querySelector<HTMLElement>("#votes");
+      if (votes) {
+        const waiting = present.filter((p) => !p.ready).map((p) => p.name);
+        votes.textContent =
+          voted.length === 0
+            ? ""
+            : waiting.length === 0
+              ? "Starting…"
+              : `${voted.length}/${present.length} ready · waiting for ${waiting.join(", ")}`;
+      }
     }
 
     if (import.meta.env.DEV) {

@@ -1,8 +1,10 @@
-﻿import { Server, type Connection } from "partyserver";
+import { Server, type Connection } from "partyserver";
 
 import {
   ANIMATION_GRACE_MS,
+  DISCONNECT_GRACE_MS,
   MAX_PLAYERS,
+  MAX_SPECTATORS,
   MIN_PLAYERS,
   PROTOCOL_VERSION,
   gridSizeFor,
@@ -12,15 +14,18 @@ import {
   encode,
   type ClientMessage,
   type ErrorCode,
+  type GameSnapshot,
   type PlayerInfo,
   type RoomConfig,
   type RoomPhase,
   type RoomSnapshot,
   type ServerMessage,
+  type SpectatorInfo,
   type TurnInfo,
 } from "../shared/protocol.ts";
 import {
   applyMove,
+  bench,
   createGame,
   currentPlayer,
   skipTurn,
@@ -29,10 +34,11 @@ import {
   type GameState,
 } from "../shared/rules.ts";
 import { fromSnapshot, toSnapshot } from "../shared/snapshot.ts";
-import type { GameSnapshot } from "../shared/protocol.ts";
 
 const INITIALS = "ABCDEFGH";
 const STORAGE_KEY = "room";
+/** Alarms can fire a touch early; treat anything within this as due. */
+const DUE_SLOP_MS = 50;
 
 interface StoredPlayer {
   id: string;
@@ -43,14 +49,24 @@ interface StoredPlayer {
   ready: boolean;
 }
 
+interface StoredSpectator {
+  id: string;
+  name: string;
+  connected: boolean;
+}
+
 interface RoomState {
   claimed: boolean;
   phase: RoomPhase;
   config: RoomConfig;
   players: StoredPlayer[];
+  spectators: StoredSpectator[];
   hostId: string | null;
   game: GameSnapshot | null;
+  /** Absolute epoch ms the current turn expires. */
   turnDeadline: number | null;
+  /** clientId -> absolute epoch ms at which a dropped player gets parked. */
+  grace: Record<string, number>;
 }
 
 interface ConnState {
@@ -59,14 +75,15 @@ interface ConnState {
 
 /**
  * One Durable Object per lobby. Authoritative for everything: turn order, move
- * legality, scores, and the shot clock.
+ * legality, scores, and every deadline.
  *
  * Clients send intents and render what comes back. They never send state.
  *
- * State lives in `this.room` while awake and is mirrored to DO storage after
- * every mutation, so hibernation (or eviction) loses nothing. Every handler
- * calls `load()` first rather than trusting that `onStart` ran in this
- * incarnation.
+ * TIMERS: a Durable Object has exactly ONE alarm, and this room needs several
+ * deadlines at once (the shot clock, plus a disconnect grace period per dropped
+ * player). `rearm()` sets the alarm to the earliest pending deadline and
+ * `onAlarm()` processes everything that has come due. Add new timers to
+ * `dueTimes()`, never by calling `setAlarm` directly.
  */
 export class GameRoom extends Server<Env> {
   /** Idle lobbies cost nothing while hibernating, but keep their sockets open. */
@@ -84,10 +101,15 @@ export class GameRoom extends Server<Env> {
       phase: "lobby",
       config: { mode: "simple", gridSize: 0 },
       players: [],
+      spectators: [],
       hostId: null,
       game: null,
       turnDeadline: null,
+      grace: {},
     };
+    // Older stored rooms may predate these fields.
+    this.room.spectators ??= [];
+    this.room.grace ??= {};
     return this.room;
   }
 
@@ -159,20 +181,36 @@ export class GameRoom extends Server<Env> {
     const clientId = (connection.state as ConnState | null)?.clientId;
     if (!clientId) return;
 
+    const spectator = room.spectators.find((s) => s.id === clientId);
+    if (spectator) {
+      room.spectators = room.spectators.filter((s) => s.id !== clientId);
+      await this.save();
+      this.broadcastRoom();
+      return;
+    }
+
     const player = room.players.find((p) => p.id === clientId);
     if (!player) return;
     player.connected = false;
 
-    // Hand the host role to someone who is actually here.
+    if (room.phase === "playing") {
+      // Don't park them straight away — a tunnel or a lock screen shouldn't
+      // cost you your turn. Park them only if they're still gone after the
+      // grace period.
+      room.grace[clientId] = Date.now() + DISCONNECT_GRACE_MS;
+    }
+
     if (room.hostId === clientId) {
       room.hostId = room.players.find((p) => p.connected)?.id ?? room.hostId;
     }
-    // An empty lobby that never started is not worth keeping.
+    // A lobby nobody is in is not worth keeping.
     if (room.phase === "lobby" && room.players.every((p) => !p.connected)) {
       room.players = [];
       room.hostId = null;
+      room.grace = {};
     }
 
+    await this.rearm(room);
     await this.save();
     this.broadcastRoom();
   }
@@ -188,42 +226,49 @@ export class GameRoom extends Server<Env> {
     }
 
     const name = sanitiseName(msg.name);
-    let player = room.players.find((p) => p.id === msg.clientId);
+    const player = room.players.find((p) => p.id === msg.clientId);
+    const spectator = room.spectators.find((s) => s.id === msg.clientId);
 
-    if (!player) {
-      // Joining mid-game becomes spectating in M4; for now it is refused.
-      if (room.phase !== "lobby") {
-        this.fail(connection, "in-progress", "That game has already started");
-        return;
-      }
+    if (player) {
+      // Reconnect: keep the slot, colour, score and inventory.
+      player.connected = true;
+      player.name = name;
+      delete room.grace[player.id];
+    } else if (spectator) {
+      spectator.connected = true;
+      spectator.name = name;
+    } else if (room.phase === "lobby") {
       if (room.players.length >= MAX_PLAYERS) {
         this.fail(connection, "room-full", "That lobby is full");
         return;
       }
-      player = {
+      room.players.push({
         id: msg.clientId,
         name,
         initial: INITIALS[room.players.length] ?? "?",
         colorIndex: room.players.length,
         connected: true,
         ready: false,
-      };
-      room.players.push(player);
+      });
     } else {
-      // Reconnect: keep the slot, colour and score.
-      player.connected = true;
-      player.name = name;
+      // The match is already running: watch, and join the next one.
+      if (room.spectators.length >= MAX_SPECTATORS) {
+        this.fail(connection, "spectators-full", "Too many people watching");
+        return;
+      }
+      room.spectators.push({ id: msg.clientId, name, connected: true });
     }
 
-    room.hostId ??= player.id;
+    room.hostId ??= room.players[0]?.id ?? null;
     // Connection state is stored as a hibernation attachment, so the
     // connection -> player mapping survives the DO going to sleep.
-    (connection as Connection<ConnState>).setState({ clientId: player.id });
+    (connection as Connection<ConnState>).setState({ clientId: msg.clientId });
 
+    await this.rearm(room);
     await this.save();
     this.send(connection, {
       t: "welcome",
-      you: player.id,
+      you: msg.clientId,
       serverNow: Date.now(),
       room: this.snapshot(room),
     });
@@ -280,13 +325,14 @@ export class GameRoom extends Server<Env> {
       return;
     }
 
-    // The roster locks here. Anyone who joins from now on spectates (M4).
+    // The roster locks here. Anyone arriving from now on spectates.
     room.players = present;
     room.players.forEach((p, i) => {
       p.initial = INITIALS[i] ?? "?";
       p.colorIndex = i;
       p.ready = false;
     });
+    room.grace = {};
 
     const n = room.config.gridSize || gridSizeFor(room.players.length);
     const state = createGame({
@@ -299,7 +345,8 @@ export class GameRoom extends Server<Env> {
     room.config.gridSize = n;
     room.game = toSnapshot(state);
     room.phase = "playing";
-    await this.scheduleTurn(room, state);
+    room.turnDeadline = deadlineFor(state);
+    await this.rearm(room);
     await this.save();
     this.broadcastRoom();
   }
@@ -329,10 +376,12 @@ export class GameRoom extends Server<Env> {
     room.game = toSnapshot(state);
     if (outcome.gameOver) {
       room.phase = "results";
-      await this.clearTurn(room);
+      room.turnDeadline = null;
+      room.players.forEach((p) => (p.ready = false));
     } else {
-      await this.scheduleTurn(room, state);
+      room.turnDeadline = deadlineFor(state);
     }
+    await this.rearm(room);
     await this.save();
 
     this.emit({
@@ -347,6 +396,9 @@ export class GameRoom extends Server<Env> {
       serverNow: Date.now(),
       turn: this.turnInfo(room, state),
     });
+
+    // The results screen needs the roster and rematch votes, not just the move.
+    if (outcome.gameOver) this.broadcastRoom();
   }
 
   private async onWake(connection: Connection, room: RoomState) {
@@ -358,74 +410,142 @@ export class GameRoom extends Server<Env> {
     if (!state.benched[index]) return;
 
     unbench(state, index);
+    delete room.grace[player.id];
     room.game = toSnapshot(state);
-    await this.scheduleTurn(room, state);
+    room.turnDeadline = deadlineFor(state);
+    await this.rearm(room);
     await this.save();
     this.broadcastRoom();
   }
-
-  private async onRematch(connection: Connection, room: RoomState) {
-    const player = this.playerFor(connection, room);
-    if (!player || room.hostId !== player.id || room.phase !== "results") return;
-
-    // The lobby survives â€” same code, same people, scores cleared.
-    room.phase = "lobby";
-    room.game = null;
-    room.players.forEach((p) => (p.ready = false));
-    await this.clearTurn(room);
-    await this.save();
-    this.broadcastRoom();
-  }
-
-  // ------------------------------------------------------------ shot clock ---
 
   /**
-   * The whole reason this is a Durable Object: an authoritative timer without
-   * an always-on process.
+   * Rematch is a vote, not a host decision: everyone still connected has to
+   * agree. The lobby survives — same code, same people — and anyone who has
+   * been spectating joins the next game.
    */
-  private async scheduleTurn(room: RoomState, state: GameState) {
-    if (state.phase !== "playing" || state.paused) {
-      await this.clearTurn(room);
-      return;
+  private async onRematch(connection: Connection, room: RoomState) {
+    const player = this.playerFor(connection, room);
+    if (!player || room.phase !== "results") return;
+
+    player.ready = !player.ready;
+
+    const present = room.players.filter((p) => p.connected);
+    const everyoneAgrees = present.length > 0 && present.every((p) => p.ready);
+
+    if (everyoneAgrees) {
+      room.players = present;
+      // Promote spectators into the next game, up to the player cap.
+      for (const s of room.spectators.filter((s) => s.connected)) {
+        if (room.players.length >= MAX_PLAYERS) break;
+        room.players.push({
+          id: s.id,
+          name: s.name,
+          initial: "?",
+          colorIndex: room.players.length,
+          connected: true,
+          ready: true,
+        });
+      }
+      room.spectators = room.spectators.filter(
+        (s) => !room.players.some((p) => p.id === s.id),
+      );
+      room.players.forEach((p, i) => {
+        p.initial = INITIALS[i] ?? "?";
+        p.colorIndex = i;
+      });
+
+      room.phase = "lobby";
+      room.game = null;
+      room.turnDeadline = null;
+      // Grid size is recomputed for the new roster size on start.
+      room.config.gridSize = 0;
     }
-    room.turnDeadline =
-      Date.now() + turnSecondsFor(state) * 1000 + ANIMATION_GRACE_MS;
-    await this.ctx.storage.setAlarm(room.turnDeadline);
+
+    await this.rearm(room);
+    await this.save();
+    this.broadcastRoom();
   }
 
-  private async clearTurn(room: RoomState) {
-    room.turnDeadline = null;
-    await this.ctx.storage.deleteAlarm();
+  // ---------------------------------------------------------------- timers ---
+
+  /** Every pending deadline. The alarm is set to the earliest of these. */
+  private dueTimes(room: RoomState): number[] {
+    const times: number[] = [];
+    if (room.phase === "playing" && room.turnDeadline !== null) {
+      times.push(room.turnDeadline);
+    }
+    for (const at of Object.values(room.grace)) times.push(at);
+    return times;
+  }
+
+  private async rearm(room: RoomState) {
+    const times = this.dueTimes(room);
+    if (times.length === 0) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    await this.ctx.storage.setAlarm(Math.min(...times));
   }
 
   override async onAlarm() {
     const room = await this.load();
-    if (room.phase !== "playing" || !room.game || room.turnDeadline === null) return;
+    const now = Date.now();
+    let changed = false;
 
-    // Alarms can fire early or be left over from a turn that already ended.
-    // Re-arm rather than skipping someone who still has time.
-    const remaining = room.turnDeadline - Date.now();
-    if (remaining > 50) {
-      await this.ctx.storage.setAlarm(room.turnDeadline);
-      return;
+    // 1. Dropped players whose grace period has run out get parked. They keep
+    //    their score and seat and can tap back in whenever they return.
+    for (const [clientId, at] of Object.entries(room.grace)) {
+      if (at > now + DUE_SLOP_MS) continue;
+      delete room.grace[clientId];
+      changed = true;
+
+      const index = room.players.findIndex((p) => p.id === clientId);
+      if (index < 0 || !room.game || room.phase !== "playing") continue;
+
+      const state = fromSnapshot(room.game);
+      if (state.benched[index]) continue;
+      bench(state, index);
+      room.game = toSnapshot(state);
+      room.turnDeadline = deadlineFor(state);
+      this.emit({
+        t: "skip",
+        playerIndex: index,
+        benched: true,
+        paused: state.paused,
+        serverNow: Date.now(),
+        turn: this.turnInfo(room, state),
+      });
     }
 
-    const state = fromSnapshot(room.game);
-    const result = skipTurn(state, currentPlayer(state));
-    if (!result.ok) return;
+    // 2. The shot clock.
+    if (
+      room.phase === "playing" &&
+      room.game &&
+      room.turnDeadline !== null &&
+      room.turnDeadline <= now + DUE_SLOP_MS
+    ) {
+      const state = fromSnapshot(room.game);
+      const result = skipTurn(state, currentPlayer(state));
+      if (result.ok) {
+        changed = true;
+        room.game = toSnapshot(state);
+        room.turnDeadline = deadlineFor(state);
+        this.emit({
+          t: "skip",
+          playerIndex: result.value.playerIndex,
+          benched: result.value.benched,
+          paused: result.value.paused,
+          serverNow: Date.now(),
+          turn: this.turnInfo(room, state),
+        });
+      }
+    }
 
-    room.game = toSnapshot(state);
-    await this.scheduleTurn(room, state);
-    await this.save();
-
-    this.emit({
-      t: "skip",
-      playerIndex: result.value.playerIndex,
-      benched: result.value.benched,
-      paused: result.value.paused,
-      serverNow: Date.now(),
-      turn: this.turnInfo(room, state),
-    });
+    await this.rearm(room);
+    if (changed) {
+      await this.save();
+      this.broadcastRoom();
+    }
   }
 
   // ---------------------------------------------------------------- output ---
@@ -451,12 +571,18 @@ export class GameRoom extends Server<Env> {
       score: game ? (game.scores[i] ?? 0) : 0,
       ready: p.ready,
     }));
+    const spectators: SpectatorInfo[] = room.spectators.map((s) => ({
+      id: s.id,
+      name: s.name,
+      connected: s.connected,
+    }));
 
     return {
       code: this.name,
       phase: room.phase,
       config: room.config,
       players,
+      spectators,
       hostId: room.hostId ?? "",
       game,
       turnDeadline: room.turnDeadline,
@@ -493,6 +619,12 @@ export class GameRoom extends Server<Env> {
 }
 
 // -------------------------------------------------------------------- utils ---
+
+/** Null once the game is over or every player is parked. */
+function deadlineFor(state: GameState): number | null {
+  if (state.phase !== "playing" || state.paused) return null;
+  return Date.now() + turnSecondsFor(state) * 1000 + ANIMATION_GRACE_MS;
+}
 
 function sanitiseName(raw: string): string {
   const trimmed = raw.replace(/\s+/g, " ").trim().slice(0, 14);

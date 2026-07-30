@@ -25,6 +25,12 @@ export interface PlayerInfo {
   ready: boolean;
 }
 
+export interface SpectatorInfo {
+  id: string;
+  name: string;
+  connected: boolean;
+}
+
 export interface RoomConfig {
   mode: Mode;
   gridSize: number;
@@ -64,6 +70,8 @@ export interface RoomSnapshot {
   phase: RoomPhase;
   config: RoomConfig;
   players: PlayerInfo[];
+  /** Watching, not playing. Promoted to players on the next rematch. */
+  spectators: SpectatorInfo[];
   hostId: string;
   game: GameSnapshot | null;
   /** Absolute epoch ms when the current turn expires. */
@@ -126,6 +134,7 @@ export type ServerMessage =
 export type ErrorCode =
   | "bad-protocol"
   | "room-full"
+  | "spectators-full"
   | "in-progress"
   | "not-host"
   | "not-enough-players"

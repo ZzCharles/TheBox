@@ -4,7 +4,8 @@
  * Anything a playtest might want to change lives here and nowhere else.
  */
 
-export const PROTOCOL_VERSION = 1;
+/** Bump whenever a wire type changes shape. Mismatched clients are told to refresh. */
+export const PROTOCOL_VERSION = 2;
 
 // ---------------------------------------------------------------- timing ---
 

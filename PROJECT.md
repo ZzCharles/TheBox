@@ -2,7 +2,7 @@
 
 > **Working title:** BOX (rename pending — see Open Questions)
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M3 complete. **Next: M4 — resilience.**
+> **Status:** M0–M4 complete. **Next: M5 — twist mode.**
 > **Last updated:** 2026-07-30
 
 ---
@@ -206,7 +206,18 @@ storage after every mutation (cheap, and survives eviction).
 The DO is evicted when empty; storage keeps the room for 30 minutes so a rejoin from a
 shared link still lands in the same lobby.
 
-### 6.2 Shot clock — use DO alarms
+### 6.2 Timers — one alarm, several deadlines
+
+**A Durable Object has exactly ONE alarm**, and the room needs more than one deadline at a
+time: the shot clock, plus a disconnect-grace countdown per dropped player. `rearm()`
+collects every pending deadline via `dueTimes()`, sets the alarm to the earliest, and
+`onAlarm()` processes everything that has come due, then re-arms.
+
+**Add new timers to `dueTimes()`, never by calling `setAlarm` directly** — a second caller
+silently overwrites the first, and the symptom is a shot clock that just stops. M5's shrink
+schedule goes here too.
+
+### 6.3 Shot clock
 
 **12 seconds per turn — but 6 seconds for continuation turns** (the extra turn you get after
 claiming a box). You already know where the next box is; you don't need full think time.
@@ -229,7 +240,7 @@ Deadline = `moveResolvedAt + turnSeconds + ANIMATION_GRACE(350ms)`.
 `TURN_SECONDS = 12`, `CONTINUATION_TURN_SECONDS = 6`, both room config values, so presets
 are free if we want them later.
 
-### 6.3 AFK / benching
+### 6.4 AFK / benching
 
 | Trigger | Result |
 |---|---|
@@ -244,7 +255,7 @@ Benched players: skipped in turn order, greyed in the scoreboard with a "TAP TO 
 affordance, **keep their score and their shop inventory**, and are never removed from the
 room. If everyone is benched, the match pauses (clock stops) rather than ending.
 
-### 6.4 Spectators
+### 6.5 Spectators
 
 Anyone joining after `COUNTDOWN` starts. They receive full state and all events, render
 the board read-only, and are queued for the next rematch. Cap spectators at 20.
@@ -304,6 +315,14 @@ full snapshot — cheaper and safer than trying to reconcile.
 **Bench state has two sources — use the game state.** A timeout only broadcasts `skip`, so
 `RoomSnapshot.players[].benched` stays stale until the next full room broadcast. The UI
 must read `state.benched[myIndex]`, which the local replay keeps current.
+
+**Player vs spectator is derived, never tracked.** Both come from the roster in the latest
+snapshot (`players.some(p => p.id === me)`). A separate `role` field was tried and removed
+at M4: two sources for one fact can disagree, and this one is already in every message.
+
+**Connection status outranks every other banner.** If the socket is down, the turn, bench
+and spectator states on screen are all potentially stale, so "Reconnecting…" wins. Getting
+this order wrong (found at M4) left disconnected spectators looking perfectly normal.
 
 ---
 
@@ -634,8 +653,16 @@ public). Duck to 4 concurrent voices max.
       6s continuation clock arriving over the wire, timeout → skip → park → pause, `wake`
       un-parking and resuming, and reconnect restoring the same seat with the full board.
       *Spectators, rematch voting, and disconnect-grace benching are M4.*
-- [ ] **M4 — Resilience.** Reconnect + snapshot, benching, spectators, rematch.
-      *Test by killing wifi mid-turn.*
+- [x] **M4 — Resilience.** ✅ 2026-07-30. Spectators for late joiners, disconnect-grace
+      parking on a multiplexed alarm, rematch as a unanimous vote with spectator promotion,
+      and animation reset on resync.
+      Verified: a late joiner spectates with the full board and cannot move; reconnecting
+      inside the grace window keeps the seat unparked; staying away past it parks you via
+      the grace path (proved by `missed < 2` while benched, which only `bench()` can
+      produce); one rematch vote holds, both release; a spectator is promoted with a fresh
+      colour and the grid resizes for the new roster. **Killed the server mid-game**: both
+      clients showed "Reconnecting…", kept their boards, and recovered with state intact —
+      the room survived in DO storage and the alarm re-armed itself.
 - [ ] **M5 — Twist mode.** Shrinking board + warning ring. Wildcard purchase, box burning,
       arming, and the two-lines-in-one-turn flow.
 - [ ] **M6 — Polish pass 1.** Play button + carpet-in, line/claim animations, audio,
