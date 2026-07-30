@@ -9,10 +9,28 @@ const NAME_KEY = "box.name";
 export function clientId(): string {
   let id = localStorage.getItem(CLIENT_ID_KEY);
   if (!id) {
-    id = crypto.randomUUID();
+    id = randomId();
     localStorage.setItem(CLIENT_ID_KEY, id);
   }
   return id;
+}
+
+/**
+ * A random 128-bit id.
+ *
+ * `crypto.randomUUID()` is SECURE-CONTEXT ONLY — present on localhost and
+ * HTTPS, `undefined` over plain HTTP to a LAN address. Calling it on a phone
+ * pointed at `http://192.168.x.x:5173` throws, which used to kill the room
+ * screen before it rendered.
+ *
+ * `crypto.getRandomValues()` carries no such restriction, so build the id from
+ * that and only use `randomUUID` when it actually exists.
+ */
+function randomId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export function storedName(): string {

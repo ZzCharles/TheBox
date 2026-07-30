@@ -70,6 +70,11 @@ exists because `requestAnimationFrame` never fires in a hidden tab, which otherw
 the canvas impossible to inspect from automation. Stripped from production by
 `import.meta.env.DEV`.
 
+**LAN playtesting.** `vite.config.ts` sets `server.host = true`, so `npm run dev` prints a
+Network URL (e.g. `http://192.168.0.115:5173/`) that phones on the same wifi can open — no
+Cloudflare account needed. Windows Firewall prompts on the first connection; allow it on
+**Private** networks. Note this is a plain-HTTP origin: see the secure-context invariant in §17.
+
 ```bash
 npm run dev      # Vite + the real Worker/DO in workerd, together, on :5173
 npm test         # rules engine, via node --test (no test dependencies)
@@ -726,6 +731,12 @@ means debugging game logic and network logic simultaneously, which is miserable.
   Never treat `lines[id] === 0` alone as a legal move.
 - Timers are broadcast as absolute deadlines, never durations.
 - Every device-capability call is feature-detected. `navigator.vibrate` is absent on iOS.
+- **Nothing may depend on a secure context.** LAN playtesting runs over plain `http://` to
+  an IP address, where `crypto.randomUUID`, `crypto.subtle` and `navigator.clipboard` are
+  all `undefined` — while `localhost` and the deployed HTTPS build have them, so this class
+  of bug never shows up in dev. `crypto.getRandomValues` is fine. (Cost an hour at M5.)
+- Screen mounting is wrapped in try/catch. A throw used to leave the previous screen on
+  display, which is indistinguishable from the app hanging.
 - Every message carries a sequence number; the client discards out-of-order/duplicate moves.
 - Animations never gate state transitions.
 - Players are **never** removed from a room mid-match. Benched, never kicked.

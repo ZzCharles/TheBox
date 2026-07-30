@@ -30,7 +30,10 @@
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; git diff --stat; \"=== non-ascii sanity across src ===\"; node -e \"const fs=require\\('fs'\\),path=require\\('path'\\);function walk\\(d\\){return fs.readdirSync\\(d,{withFileTypes:true}\\).flatMap\\(e=>e.isDirectory\\(\\)?walk\\(path.join\\(d,e.name\\)\\):[path.join\\(d,e.name\\)]\\);}let bad=0;for\\(const f of walk\\('src'\\)\\){const t=fs.readFileSync\\(f,'utf8'\\);const m=t.match\\(/[\\\\u00E2\\\\u20AC\\\\u201D\\\\uFFFD]/g\\);if\\(m\\){console.log\\(f,m.length\\);bad+=m.length;}}console.log\\('total suspicious chars:',bad\\);\")",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run check 2>&1 | Select-Object -Last 20; \"=== tests ===\"; npm test 2>&1 | Select-Object -Last 9)",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 22)",
-      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run build 2>&1 | Select-Object -Last 10)"
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run build 2>&1 | Select-Object -Last 10)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; \"=== wrangler auth state ===\"; npx wrangler whoami 2>&1 | Select-Object -First 20)",
+      "PowerShell(\"=== is the dev server listening on 5173? ===\"; try { $c = Test-NetConnection -ComputerName localhost -Port 5173 -InformationLevel Quiet -WarningAction SilentlyContinue; \"port 5173 open: $c\" } catch { \"check failed\" }; \"=== node processes ===\"; Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, StartTime | Format-Table -AutoSize | Out-String)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run check 2>&1 | Select-Object -Last 10; \"=== tests ===\"; npm test 2>&1 | Select-Object -Last 7)"
     ]
   }
 }

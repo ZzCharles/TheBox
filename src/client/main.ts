@@ -20,16 +20,45 @@ function route() {
   dispose?.();
   dispose = null;
 
-  const match = /^#\/r\/([A-Za-z0-9]{4})$/.exec(location.hash);
-  if (match) {
-    dispose = mountRoom(app, match[1]!.toUpperCase());
-    return;
+  // A throw while mounting used to leave the PREVIOUS screen on display, which
+  // looks exactly like the app hanging. Say what happened instead.
+  try {
+    const match = /^#\/r\/([A-Za-z0-9]{4})$/.exec(location.hash);
+    if (match) {
+      dispose = mountRoom(app, match[1]!.toUpperCase());
+      return;
+    }
+    if (location.hash === "#/hotseat") {
+      dispose = mountHotseat(app);
+      return;
+    }
+    dispose = mountLanding(app);
+  } catch (err) {
+    showFatal(err);
   }
-  if (location.hash === "#/hotseat") {
-    dispose = mountHotseat(app);
-    return;
-  }
-  dispose = mountLanding(app);
+}
+
+function showFatal(err: unknown) {
+  console.error("[box] failed to open screen", err);
+  app.innerHTML = `
+    <main class="setup">
+      <h1>BOX</h1>
+      <p class="tag">something broke</p>
+      <p class="hint">${escapeHtml(String(err))}</p>
+      <button class="primary" id="fatal-home">Back to start</button>
+    </main>`;
+  app.querySelector("#fatal-home")?.addEventListener("click", () => {
+    location.hash = "#/";
+    location.reload();
+  });
+}
+
+function escapeHtml(raw: string): string {
+  return raw.replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c,
+  );
 }
 
 window.addEventListener("hashchange", route);
