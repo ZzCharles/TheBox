@@ -11,10 +11,41 @@
 ## 0. How to use this file
 
 This is the single source of truth for a new chat. Read sections 1–4 to get oriented,
-then jump to whatever milestone is marked `IN PROGRESS` in §15.
+then jump to whatever milestone is unticked in §15.
 
 When something is decided, move it out of §16 (Open Questions) and into the body.
 When a milestone completes, tick it in §15 and update `Last updated` above.
+
+**Companion doc:** `DESIGN-BRIEF.md` is the self-contained visual brief for designing the
+look and the set-piece animations in a separate chat. It restates the constraints that
+matter for design; this file stays the engineering reference.
+
+### Where the project stands
+
+**The game is finished and playable.** All rules, real-time multiplayer, lobby, reconnect,
+spectators, rematch and twist mode work, and have been played on real phones over a LAN.
+82 tests pass. What remains is presentation.
+
+| Area | State |
+|---|---|
+| Rules engine | ✅ Done, pure, 82 tests |
+| Multiplayer / server | ✅ Done, authoritative, survives restarts |
+| Board rendering + input | ✅ Done, 0.7 ms/frame |
+| Twist mode | ✅ Done |
+| Game screen layout | ✅ Done (M6) |
+| **Sound** | ❌ Silent — highest-value gap |
+| **Start sequence** | ❌ No Play button animation |
+| **Endgame sequence** | ❌ Winner overlay only, no shatter |
+| **Shrink collapse animation** | ❌ Instant, with a toast |
+| **PWA / installable** | ❌ Not started |
+| **Deployed** | ❌ Blocked 2026-07-31 by a Cloudflare API outage (522/521), not by us |
+
+### Playtest log
+
+- **2026-07-31, 2 players, LAN, real phones.** Verdict: "it feels alright." Fixes that came
+  out of it are in M6 part 1 and part 2 (screen jitter, board presets, collapse countdown,
+  public wildcard badge). Still unanswered: does anyone actually buy a Wildcard, does 12s
+  feel right, real game length, tap accuracy.
 
 ---
 
@@ -727,6 +758,8 @@ public). Duck to 4 concurrent voices max.
       *The collapse is instant, not animated — tiles flying to the scoreboard shares code
       with the endgame shatter and lands in M7.*
 - [ ] **M6 — Polish pass 1.** Play button + carpet-in, audio, full visual token pass.
+      *Visual direction is being explored separately — see `DESIGN-BRIEF.md`. Audio does
+      not depend on that and is the highest-value item left; do it first.*
       - [x] Game-screen header: back, "Now playing · name", room code (2026-07-31)
       - [x] Board-size presets in the lobby, with length estimates (2026-07-31)
       - [x] Fixed-height rows — killed the 39 px board jump on every move (2026-07-31)
