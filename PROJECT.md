@@ -38,7 +38,19 @@ spectators, rematch and twist mode work, and have been played on real phones ove
 | **Endgame sequence** | ❌ Winner overlay only, no shatter |
 | **Shrink collapse animation** | ❌ Instant, with a toast |
 | **PWA / installable** | ❌ Not started |
-| **Deployed** | ❌ Blocked 2026-07-31 by a Cloudflare API outage (522/521), not by us |
+| **Deployed** | ✅ https://box.charlesbobby253.workers.dev |
+
+**Live since 2026-07-31.** Verified against the deployed site, not just dev: room creation,
+code lookup, two WebSocket clients joining, a move propagating to both, and a **28 ms median
+round-trip**. Redeploy with `npm.cmd run deploy` (~30 seconds).
+
+Two things only the real deploy revealed:
+- Requests in the first ~30 seconds after a deploy can hit the old Worker while the new one
+  propagates — `/api/*` briefly returned the SPA fallback and a 500. It settles on its own;
+  don't debug it, just retry.
+- The live site is HTTPS, so it is a **secure context** — `crypto.randomUUID` and
+  `navigator.clipboard` work there but not over LAN HTTP. LAN testing is the stricter
+  environment; see the secure-context invariant in §17.
 
 ### Playtest log
 
