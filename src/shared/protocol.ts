@@ -84,7 +84,17 @@ export interface RoomSnapshot {
 // -------------------------------------------------------- client -> server ---
 
 export type ClientMessage =
-  | { t: "hello"; protocolVersion: number; clientId: string; name: string }
+  | {
+      t: "hello";
+      protocolVersion: number;
+      clientId: string;
+      name: string;
+      /**
+       * Proves this device belongs to the owner, who always hosts. Held in
+       * localStorage after being entered once; checked against a Worker secret.
+       */
+      ownerKey?: string;
+    }
   | { t: "ready"; ready: boolean }
   | { t: "configure"; mode?: Mode; gridSize?: number }
   | { t: "start" }

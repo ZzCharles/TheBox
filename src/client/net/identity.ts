@@ -5,6 +5,7 @@
 
 const CLIENT_ID_KEY = "box.clientId";
 const NAME_KEY = "box.name";
+const OWNER_KEY = "box.ownerKey";
 
 export function clientId(): string {
   let id = localStorage.getItem(CLIENT_ID_KEY);
@@ -39,4 +40,24 @@ export function storedName(): string {
 
 export function rememberName(name: string): void {
   localStorage.setItem(NAME_KEY, name.trim().slice(0, 14));
+}
+
+/** True once a name has been chosen, so we stop asking on every visit. */
+export function hasName(): boolean {
+  return storedName().trim().length > 0;
+}
+
+/**
+ * The owner key, typed once on the owner's device. Kept locally and sent with
+ * every `hello`; the server checks it against a secret, so the key itself never
+ * appears anywhere in the shipped code.
+ */
+export function ownerKey(): string {
+  return localStorage.getItem(OWNER_KEY) ?? "";
+}
+
+export function rememberOwnerKey(key: string): void {
+  const trimmed = key.trim();
+  if (trimmed) localStorage.setItem(OWNER_KEY, trimmed);
+  else localStorage.removeItem(OWNER_KEY);
 }

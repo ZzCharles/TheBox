@@ -45,7 +45,13 @@
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; $msg = \"C:\\\\Users\\\\rabin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-rabin-Desktop-Projects-Box\\\\10a37a6c-5349-4738-8ce6-7836067d810f\\\\scratchpad\\\\commit-m6b.txt\"; git add -A; git -c user.name=\"rabin\" -c user.email=\"reshipal777@gmail.com\" commit -q -F $msg; git log --oneline | Select-Object -First 3)",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; node \"node_modules\\\\wrangler\\\\bin\\\\wrangler.js\" whoami 2>&1 | Select-Object -First 25)",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run build 2>&1 | Select-Object -Last 6; \"=== deploying ===\"; node \"node_modules\\\\wrangler\\\\bin\\\\wrangler.js\" deploy 2>&1 | Select-Object -Last 30)",
-      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run build 2>&1 | Select-Object -Last 4; \"=== deploy ===\"; node \"node_modules\\\\wrangler\\\\bin\\\\wrangler.js\" deploy 2>&1 | Select-Object -Last 35)"
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run build 2>&1 | Select-Object -Last 4; \"=== deploy ===\"; node \"node_modules\\\\wrangler\\\\bin\\\\wrangler.js\" deploy 2>&1 | Select-Object -Last 35)",
+      "PowerShell(\"=== files you'd recognise from a normal website ===\"; Get-ChildItem -Path . -File | Where-Object { $_.Name -notmatch 'package-lock' } | Select-Object Name | Format-Table -AutoSize | Out-String; \"=== is there a manifest or service worker? ===\"; @\\('public\\\\manifest.json','manifest.json','public\\\\sw.js','dist\\\\client\\\\manifest.webmanifest'\\) | ForEach-Object { \"$_ exists: $\\(Test-Path $_\\)\" }; \"=== what actually got uploaded ===\"; Get-ChildItem dist\\\\client -Recurse -File | Select-Object @{n='file';e={$_.FullName.Replace\\(\\(Get-Location\\).Path+'\\\\dist\\\\client',''\\)}}, @{n='KB';e={[math]::Round\\($_.Length/1KB,1\\)}} | Format-Table -AutoSize | Out-String)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm test 2>&1 | Select-Object -Last 30)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npx.cmd tsc -p tsconfig.worker.json --noEmit 2>&1 | Select-Object -Last 15)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm.cmd run check 2>&1 | Select-Object -Last 15)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm.cmd run check 2>&1 | Select-Object -Last 12; \"=== tests ===\"; npm.cmd test 2>&1 | Select-Object -Last 7)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; \"=== confirm .dev.vars is not tracked ===\"; git check-ignore -v .dev.vars; git add -A; git status --short | Select-Object -First 12)"
     ]
   }
 }

@@ -99,6 +99,27 @@
   cursor: pointer;
 }
 
+.linkish.subtle {
+  font-size: 0.65rem;
+  opacity: 0.5;
+  text-decoration: none;
+}
+
+.identity {
+  font-size: 0.95rem;
+  color: var(--text-dim);
+}
+
+.identity strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.identity .linkish {
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+}
+
 /* Landing + lobby ------------------------------------------------------- */
 
 .field {

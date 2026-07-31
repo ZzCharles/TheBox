@@ -304,7 +304,35 @@ Benched players: skipped in turn order, greyed in the scoreboard with a "TAP TO 
 affordance, **keep their score and their shop inventory**, and are never removed from the
 room. If everyone is benched, the match pauses (clock stops) rather than ending.
 
-### 6.5 Spectators
+### 6.5 Identity, initials and the owner
+
+**Initials come from names**, via `assignInitials()` in `src/shared/initials.ts` — pure and
+tested. Each player takes the first letter of their name; if it is already taken they fall
+through to their *second* letter, then their third. Ada and Alan become **A** and **L**.
+Earlier players keep their letter — a newcomer never displaces someone who has been in the
+lobby, which would be jarring mid-game.
+
+Initials are **derived, never stored authoritatively**: `refreshRoster()` recomputes them
+(and colours, and the host) after any change to the roster or a name, so a rename updates
+every screen at once.
+
+**The name is remembered on the device.** Asked for once, then shown as "Playing as X ·
+change". Retyping it every session is pure friction for a game played with the same people.
+
+**The owner always hosts.** A device holding the owner key takes the host role the moment it
+connects, whatever the join order; otherwise the first player in hosts, as before.
+
+- The key lives in `localStorage` on the owner's device, entered once.
+- It is sent with every `hello` and checked against the `OWNER_KEY` Worker secret, so the
+  key itself never appears in the shipped code.
+- **If `OWNER_KEY` is unset the feature is simply off** — a deliberately safe default.
+
+```bash
+npx.cmd wrangler secret put OWNER_KEY   # production
+echo "OWNER_KEY=..." > .dev.vars        # local dev (gitignored)
+```
+
+### 6.6 Spectators
 
 Anyone joining after `COUNTDOWN` starts. They receive full state and all events, render
 the board read-only, and are queued for the next rematch. Cap spectators at 20.
@@ -779,6 +807,9 @@ public). Duck to 4 concurrent voices max.
       - [x] Leave button + Android hardware back (2026-07-31)
       - [x] Collapse countdown — two rounds of notice instead of one (2026-07-31)
       - [x] Public ✦ Wildcard badge on every player's avatar (2026-07-31)
+      - [x] Initials derived from names, with collision fallback (2026-07-31)
+      - [x] Name remembered on the device, with a change option (2026-07-31)
+      - [x] Owner device always hosts, via a Worker secret (2026-07-31)
       - [ ] Audio: tick, click, thunk, whoosh, clack, blip, fanfare
       - [ ] Play button with the hinged lid + screen shake
       - [ ] Carpet-in dot animation

@@ -22,6 +22,8 @@ export interface NetOptions {
   code: string;
   clientId: string;
   name: string;
+  /** Sent on every hello; empty on all devices except the owner's. */
+  ownerKey?: string;
   onMessage(msg: ServerMessage): void;
   onStatus(status: NetStatus): void;
 }
@@ -79,6 +81,7 @@ export function connect(options: NetOptions): Net {
         protocolVersion: PROTOCOL_VERSION,
         clientId: options.clientId,
         name: options.name,
+        ...(options.ownerKey ? { ownerKey: options.ownerKey } : {}),
       });
       for (const msg of queue.splice(0)) raw(msg);
       ping();

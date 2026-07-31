@@ -36,9 +36,9 @@ import {
   type BuyOutcome,
   type GameState,
 } from "../shared/rules.ts";
+import { assignInitials } from "../shared/initials.ts";
 import { fromSnapshot, toSnapshot } from "../shared/snapshot.ts";
 
-const INITIALS = "ABCDEFGH";
 const STORAGE_KEY = "room";
 /** Alarms can fire a touch early; treat anything within this as due. */
 const DUE_SLOP_MS = 50;
@@ -50,6 +50,8 @@ interface StoredPlayer {
   colorIndex: number;
   connected: boolean;
   ready: boolean;
+  /** Proved they hold the owner key. Outranks join order for hosting. */
+  isOwner: boolean;
 }
 
 interface StoredSpectator {
@@ -118,6 +120,48 @@ export class GameRoom extends Server<Env> {
 
   private async save(): Promise<void> {
     if (this.room) await this.ctx.storage.put(STORAGE_KEY, this.room);
+  }
+
+  /**
+   * Recompute everything derived from the roster: initials, colours, and who
+   * holds the host role. Call after ANY change to players or their names.
+   *
+   * Initials come from names, so "Ada" and "Alan" become A and L. They are
+   * derived rather than stored because a rename has to update them everywhere
+   * at once.
+   */
+  private refreshRoster(room: RoomState) {
+    const initials = assignInitials(room.players.map((p) => p.name));
+    room.players.forEach((p, i) => {
+      p.initial = initials[i] ?? "?";
+      p.colorIndex = i;
+    });
+
+    // The owner is host whenever they are connected, whatever the join order.
+    // Otherwise the existing host keeps it while they are still here, and
+    // failing that it falls to whoever is present.
+    const owner = room.players.find((p) => p.isOwner && p.connected);
+    if (owner) {
+      room.hostId = owner.id;
+      return;
+    }
+    const current = room.players.find((p) => p.id === room.hostId && p.connected);
+    room.hostId = current?.id ?? room.players.find((p) => p.connected)?.id ?? null;
+  }
+
+  /**
+   * Owner status is proved with a key held on the device, checked against a
+   * Worker secret. If OWNER_KEY is unset the feature is simply off and the
+   * first player to arrive hosts, as before.
+   */
+  private isOwnerKey(key: string | undefined): boolean {
+    const expected = this.env.OWNER_KEY;
+    return (
+      typeof expected === "string" &&
+      expected.length > 0 &&
+      typeof key === "string" &&
+      key === expected
+    );
   }
 
   override async onStart() {
@@ -201,6 +245,8 @@ export class GameRoom extends Server<Env> {
     const player = room.players.find((p) => p.id === clientId);
     if (!player) return;
     player.connected = false;
+    // Hands the host role on if they were holding it.
+    this.refreshRoster(room);
 
     if (room.phase === "playing") {
       // Don't park them straight away — a tunnel or a lock screen shouldn't
@@ -209,9 +255,6 @@ export class GameRoom extends Server<Env> {
       room.grace[clientId] = Date.now() + DISCONNECT_GRACE_MS;
     }
 
-    if (room.hostId === clientId) {
-      room.hostId = room.players.find((p) => p.connected)?.id ?? room.hostId;
-    }
     // A lobby nobody is in is not worth keeping.
     if (room.phase === "lobby" && room.players.every((p) => !p.connected)) {
       room.players = [];
@@ -238,10 +281,13 @@ export class GameRoom extends Server<Env> {
     const player = room.players.find((p) => p.id === msg.clientId);
     const spectator = room.spectators.find((s) => s.id === msg.clientId);
 
+    const owns = this.isOwnerKey(msg.ownerKey);
+
     if (player) {
       // Reconnect: keep the slot, colour, score and inventory.
       player.connected = true;
       player.name = name;
+      if (owns) player.isOwner = true;
       delete room.grace[player.id];
     } else if (spectator) {
       spectator.connected = true;
@@ -254,10 +300,11 @@ export class GameRoom extends Server<Env> {
       room.players.push({
         id: msg.clientId,
         name,
-        initial: INITIALS[room.players.length] ?? "?",
+        initial: "?",
         colorIndex: room.players.length,
         connected: true,
         ready: false,
+        isOwner: owns,
       });
     } else {
       // The match is already running: watch, and join the next one.
@@ -268,7 +315,7 @@ export class GameRoom extends Server<Env> {
       room.spectators.push({ id: msg.clientId, name, connected: true });
     }
 
-    room.hostId ??= room.players[0]?.id ?? null;
+    this.refreshRoster(room);
     // Connection state is stored as a hibernation attachment, so the
     // connection -> player mapping survives the DO going to sleep.
     (connection as Connection<ConnState>).setState({ clientId: msg.clientId });
@@ -336,11 +383,8 @@ export class GameRoom extends Server<Env> {
 
     // The roster locks here. Anyone arriving from now on spectates.
     room.players = present;
-    room.players.forEach((p, i) => {
-      p.initial = INITIALS[i] ?? "?";
-      p.colorIndex = i;
-      p.ready = false;
-    });
+    room.players.forEach((p) => (p.ready = false));
+    this.refreshRoster(room);
     room.grace = {};
 
     const n = room.config.gridSize || gridSizeFor(room.players.length);
@@ -490,15 +534,13 @@ export class GameRoom extends Server<Env> {
           colorIndex: room.players.length,
           connected: true,
           ready: true,
+          isOwner: false,
         });
       }
       room.spectators = room.spectators.filter(
         (s) => !room.players.some((p) => p.id === s.id),
       );
-      room.players.forEach((p, i) => {
-        p.initial = INITIALS[i] ?? "?";
-        p.colorIndex = i;
-      });
+      this.refreshRoster(room);
 
       room.phase = "lobby";
       room.game = null;

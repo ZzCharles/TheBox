@@ -37,7 +37,7 @@ import {
 } from "../../shared/constants.ts";
 import { exposeDebug } from "../devtools.ts";
 import { attachPointer } from "../input/pointer.ts";
-import { clientId, storedName } from "../net/identity.ts";
+import { clientId, ownerKey, storedName } from "../net/identity.ts";
 import { connect, type Net, type NetStatus } from "../net/socket.ts";
 import {
   createBoardRenderer,
@@ -66,6 +66,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     code,
     clientId: me,
     name: storedName() || "Player",
+    ownerKey: ownerKey(),
     onMessage: handle,
     onStatus(next) {
       status = next;
@@ -219,6 +220,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       protocolVersion: PROTOCOL_VERSION,
       clientId: me,
       name: storedName() || "Player",
+      ...(ownerKey() ? { ownerKey: ownerKey() } : {}),
     });
   }
 
