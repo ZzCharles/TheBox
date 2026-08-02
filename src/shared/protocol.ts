@@ -48,6 +48,8 @@ export interface GameSnapshot {
   mode: Mode;
   lines: number[];
   boxes: number[];
+  /** Prior owner of each spent box, or -1. Keeps the ash tile's grey letter. */
+  formerOwner: number[];
   scores: number[];
   harvested: number[];
   charges: number[];
@@ -94,8 +96,14 @@ export type ClientMessage =
        * localStorage after being entered once; checked against a Worker secret.
        */
       ownerKey?: string;
+      /**
+       * Preferred player colour, as an index into `PLAYER_COLORS`. Granted if it
+       * is free at join time; otherwise the player quietly gets the next open
+       * one. No prompt, no error — a colour is not worth interrupting someone
+       * over. Omitted or -1 means no preference.
+       */
+      colour?: number;
     }
-  | { t: "ready"; ready: boolean }
   | { t: "configure"; mode?: Mode; gridSize?: number }
   | { t: "start" }
   | { t: "move"; lineId: number; turnSeq: number }
@@ -177,6 +185,7 @@ export type ErrorCode =
   | "in-progress"
   | "not-host"
   | "not-enough-players"
+  | "board-too-big"
   | "not-ready"
   | "rejected"
   | "wildcard"

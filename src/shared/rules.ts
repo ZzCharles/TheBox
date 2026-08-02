@@ -14,6 +14,7 @@ import {
   CONTINUATION_TURN_SECONDS,
   MAX_WILDCARD_CHARGES,
   MISSED_TURNS_TO_BENCH,
+  SHRINK_FLOOR_SQUARES,
   SHRINK_INTERVAL_ROTATIONS,
   TURN_SECONDS,
   WILDCARD_COST,
@@ -57,6 +58,18 @@ export interface GameState {
   lines: Uint8Array;
   /** Per box: UNCLAIMED | SPENT | DEAD | player index. */
   boxes: Int8Array;
+  /**
+   * Who owned a box before it left play, or -1. Covers both ways a box can go:
+   * SPENT on a Wildcard, and DEAD to a collapsing ring. `boxes` is overwritten
+   * in both cases, so without this the owner is simply gone.
+   *
+   * The two are drawn very differently, because they mean opposite things. A
+   * box the FIRE took keeps its point — banked the moment the square closed —
+   * so its ash keeps the owner's letter and players can still count what they
+   * won. A box SPENT on a Wildcard was paid away and counts for nobody, so it
+   * carries no letter at all.
+   */
+  formerOwner: Int8Array;
 
   scores: Int32Array;
   /**
@@ -172,6 +185,7 @@ export function createGame(opts: {
     n,
     lines: new Uint8Array(lineCount(n)),
     boxes: new Int8Array(n * n).fill(UNCLAIMED),
+    formerOwner: new Int8Array(n * n).fill(-1),
     scores: new Int32Array(playerCount),
     harvested: new Int32Array(playerCount),
     charges: new Uint8Array(playerCount),
@@ -331,9 +345,25 @@ export function isShrinkWarning(s: GameState): boolean {
   return rounds !== null && rounds <= 1;
 }
 
+/**
+ * Whether the live area could survive losing another ring.
+ *
+ * A collapse takes one square off each side, so the short side loses two. Below
+ * the floor the board simply stops burning and the game plays out on what is
+ * left — see `SHRINK_FLOOR_SQUARES`.
+ */
+export function canCollapse(s: GameState): boolean {
+  const { r0, c0, r1, c1 } = s.bounds;
+  if (r0 > r1 || c0 > c1) return false;
+  const shortSide = Math.min(r1 - r0 + 1, c1 - c0 + 1);
+  return shortSide - 2 >= SHRINK_FLOOR_SQUARES;
+}
+
 /** Arm the shrinking board once enough of the board is committed. */
 function maybeArmShrink(s: GameState): void {
   if (s.mode !== "twist" || s.collapseAtRotation !== null) return;
+  // Never announce a collapse that the floor will not allow to happen.
+  if (!canCollapse(s)) return;
   const fraction = s.linesPlaced / lineCount(s.n);
   if (fraction < shrinkArmFraction(playerCount(s))) return;
   // Two rounds, not one: the first shows a countdown so players can plan, the
@@ -347,6 +377,13 @@ function maybeCollapse(s: GameState): ShrinkOutcome | null {
   if (s.phase !== "playing") return null;
   if (s.rotations < s.collapseAtRotation) return null;
 
+  // The floor. Stop for good rather than this rotation, so nothing keeps
+  // counting down to a collapse that will never arrive.
+  if (!canCollapse(s)) {
+    s.collapseAtRotation = null;
+    return null;
+  }
+
   const ring = ringBoxes(s);
   const removedBoxes: number[] = [];
   const harvested: Array<{ box: number; owner: number }> = [];
@@ -355,8 +392,10 @@ function maybeCollapse(s: GameState): ShrinkOutcome | null {
     const owner = s.boxes[box];
     if (owner >= 0) {
       // Already earned. The point stands and the tile flies to its owner now
-      // instead of at the end.
+      // instead of at the end. Remember whose it was: the ash keeps their
+      // letter so the board stays countable after the ring goes.
       s.harvested[owner]++;
+      s.formerOwner[box] = owner;
       harvested.push({ box, owner });
     } else if (owner === UNCLAIMED) {
       // Never claimed by anyone, and now never can be.
@@ -386,7 +425,9 @@ function maybeCollapse(s: GameState): ShrinkOutcome | null {
     removedLines.push(id);
   }
 
-  s.collapseAtRotation = s.rotations + SHRINK_INTERVAL_ROTATIONS;
+  // Only schedule another if one is actually possible; otherwise the board has
+  // burned as far as it ever will.
+  s.collapseAtRotation = canCollapse(s) ? s.rotations + SHRINK_INTERVAL_ROTATIONS : null;
 
   return { removedBoxes, harvested, removedLines, bounds: { ...s.bounds } };
 }
@@ -571,9 +612,11 @@ export function buyWildcard(
   if (s.charges[playerIndex] >= MAX_WILDCARD_CHARGES) return reject("charges-full");
   if (s.scores[playerIndex] < WILDCARD_COST) return reject("cannot-afford");
 
-  const burned = ownedBoxesFurthestFirst(s, playerIndex).slice(0, WILDCARD_COST);
+  const burned = wildcardCostPreview(s, playerIndex);
   for (const box of burned) {
     s.boxes[box] = SPENT;
+    // Remember whose it was, so the ash keeps their letter.
+    s.formerOwner[box] = playerIndex;
     s.scores[playerIndex]--;
   }
   s.charges[playerIndex]++;
@@ -606,7 +649,28 @@ export function armWildcard(s: GameState, playerIndex: number): Result<number> {
   return { ok: true, value: s.charges[playerIndex] };
 }
 
-/** Boxes owned by a player, ordered by distance from board centre, descending. */
+/**
+ * Exactly the boxes a Wildcard purchase would take from this player, in order.
+ *
+ * Exported so the board can SHOW the price before it is paid: ten squares
+ * silently turning grey looks arbitrary unless you already know the rule. The
+ * preview and the purchase call the same function, so they cannot disagree.
+ *
+ * Returns fewer than `WILDCARD_COST` if the player cannot afford one — the
+ * caller decides whether that is worth drawing.
+ */
+export function wildcardCostPreview(s: GameState, playerIndex: number): number[] {
+  return ownedBoxesFurthestFirst(s, playerIndex).slice(0, WILDCARD_COST);
+}
+
+/**
+ * Boxes owned by a player, ordered by distance from board centre, descending.
+ *
+ * Furthest-first because in Twist the outside burns first anyway, so a purchase
+ * spends the squares most likely to be destroyed regardless — and it is
+ * automatic because choosing ten squares by hand under a 12-second clock would
+ * be miserable.
+ */
 function ownedBoxesFurthestFirst(s: GameState, playerIndex: number): number[] {
   const n = s.n;
   const mid = (n - 1) / 2;

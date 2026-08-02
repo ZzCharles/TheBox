@@ -174,7 +174,7 @@ describe("board presets", () => {
 
   it("estimates length growing quadratically with the grid", () => {
     const times = BOARD_PRESETS.map((p) => estimatedMinutes(p.grid));
-    assert.deepEqual(times, [8, 14, 22, 31]);
+    assert.deepEqual(times, [14, 22, 31, 42]);
     for (let i = 1; i < times.length; i++) {
       assert.ok(times[i]! > times[i - 1]!, "bigger boards must read as longer");
     }

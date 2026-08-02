@@ -45,10 +45,26 @@ describe("computeLayout", () => {
     assert.equal(l.cell, 400 / 9);
   });
 
-  it("keeps dots and lines visible on a cramped board", () => {
+  it("keeps dots visible on a cramped board", () => {
     const l = computeLayout(12, 320, 320);
-    assert.ok(l.dotRadius >= 2.5);
-    assert.ok(l.lineWidth >= 2.5 && l.lineWidth <= 4);
+    assert.ok(l.dotRadius >= 2, "a dot never shrinks below the 2px floor");
+    assert.ok(l.lineWidth > 0);
+  });
+
+  it("scales dots and lines as fractions of the gap, not in pixels", () => {
+    // A Grand board should look like a Small board seen from further away, so
+    // the ratios must be identical at every size. Fixed pixel values were what
+    // turned a 12x12 board into a solid mesh.
+    const small = computeLayout(6, 400, 700);
+    const grand = computeLayout(12, 400, 700);
+
+    assert.ok(grand.cell < small.cell, "a bigger grid means a smaller gap");
+    for (const key of ["dotRadius", "lineWidth"] as const) {
+      assert.ok(
+        Math.abs(small[key] / small.cell - grand[key] / grand.cell) < 1e-9,
+        `${key} should hold the same ratio to the gap`,
+      );
+    }
   });
 });
 

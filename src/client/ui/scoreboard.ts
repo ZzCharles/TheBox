@@ -36,9 +36,16 @@ export interface Scoreboard {
   destroy(): void;
 }
 
+/**
+ * @param meIndex Which panel is the viewer's, or -1. Their name renders in full
+ *                white while everyone else stays grey, and a short bar in their
+ *                colour sits under the panel. Neither costs horizontal space,
+ *                which is what matters at eight players on a phone.
+ */
 export function createScoreboard(
   host: HTMLElement,
   players: PlayerView[],
+  meIndex = -1,
 ): Scoreboard {
   host.innerHTML = "";
   host.className = "scoreboard";
@@ -46,7 +53,7 @@ export function createScoreboard(
 
   const panels = players.map((player, index) => {
     const panel = document.createElement("div");
-    panel.className = "player";
+    panel.className = index === meIndex ? "player you" : "player";
     panel.style.setProperty("--player-color", player.color);
     panel.innerHTML = `
       <div class="avatar">
@@ -60,6 +67,7 @@ export function createScoreboard(
       </div>
       <span class="score">0</span>
       <span class="name">${player.name}</span>
+      ${index === meIndex ? '<span class="you-bar"></span>' : ""}
     `;
     host.appendChild(panel);
 

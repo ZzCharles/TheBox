@@ -24,6 +24,8 @@ export interface NetOptions {
   name: string;
   /** Sent on every hello; empty on all devices except the owner's. */
   ownerKey?: string;
+  /** Preferred colour index, or -1 for no preference. */
+  colour?: number;
   onMessage(msg: ServerMessage): void;
   onStatus(status: NetStatus): void;
 }
@@ -82,6 +84,9 @@ export function connect(options: NetOptions): Net {
         clientId: options.clientId,
         name: options.name,
         ...(options.ownerKey ? { ownerKey: options.ownerKey } : {}),
+        ...(options.colour !== undefined && options.colour >= 0
+          ? { colour: options.colour }
+          : {}),
       });
       for (const msg of queue.splice(0)) raw(msg);
       ping();

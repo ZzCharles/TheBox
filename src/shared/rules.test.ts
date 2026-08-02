@@ -22,6 +22,7 @@ import {
   SPENT,
   UNCLAIMED,
   unbench,
+  wildcardCostPreview,
   type GameState,
   type MoveOutcome,
   type Result,
@@ -304,6 +305,51 @@ describe("wildcard", () => {
       s.scores[0],
       "INVARIANT: score must equal boxes visibly owned",
     );
+  });
+
+  it("previews exactly the boxes the purchase will take", () => {
+    // The board shows this preview before you commit. If it could disagree with
+    // the purchase by even one square, it would be worse than showing nothing.
+    const s = twistWithBoxes(WILDCARD_COST + 5);
+    const preview = wildcardCostPreview(s, 0);
+    assert.equal(preview.length, WILDCARD_COST);
+
+    const r = buyWildcard(s, 0);
+    assert.ok(r.ok);
+    assert.deepEqual(r.value.burned, preview, "preview and purchase must match");
+  });
+
+  it("previews the squares furthest from the centre first", () => {
+    const n = 8;
+    const s = createGame({ n, mode: "twist", playerCount: 2 });
+    // A corner and a centre square, both player 0's.
+    const corner = boxId(n, 0, 0);
+    const centre = boxId(n, 3, 3);
+    s.boxes[corner] = 0;
+    s.boxes[centre] = 0;
+    s.scores[0] = 2;
+
+    assert.deepEqual(
+      wildcardCostPreview(s, 0),
+      [corner, centre],
+      "the outside goes first — it is what the fire would take anyway",
+    );
+  });
+
+  it("remembers who owned each burned box, so the ash keeps their letter", () => {
+    const s = twistWithBoxes(WILDCARD_COST + 3);
+    const r = buyWildcard(s, 0);
+    assert.ok(r.ok);
+
+    for (const box of r.value.burned) {
+      assert.equal(s.boxes[box], SPENT, `box ${box} should be ash`);
+      assert.equal(s.formerOwner[box], 0, `box ${box} should remember player 0`);
+    }
+    // Nothing that was never spent claims an owner.
+    for (let box = 0; box < s.boxes.length; box++) {
+      if (s.boxes[box] === SPENT) continue;
+      assert.equal(s.formerOwner[box], -1, `box ${box} was never spent`);
+    }
   });
 
   it("does not resurrect burned boxes as claimable", () => {

@@ -25,19 +25,23 @@ import {
   isShrinkWarning,
   ringBoxes,
   roundsUntilCollapse,
+  wildcardCostPreview,
   skipTurn,
   type GameState,
 } from "../../shared/rules.ts";
 import {
   BOARD_PRESETS,
   estimatedMinutes,
+  GRAND_MIN_PLAYERS,
   gridSizeFor,
+  presetAllowed,
   MAX_WILDCARD_CHARGES,
+  MIN_PLAYERS,
   WILDCARD_COST,
 } from "../../shared/constants.ts";
 import { exposeDebug } from "../devtools.ts";
 import { attachPointer } from "../input/pointer.ts";
-import { clientId, ownerKey, storedName } from "../net/identity.ts";
+import { clientId, ownerKey, prefs, storedName } from "../net/identity.ts";
 import { connect, type Net, type NetStatus } from "../net/socket.ts";
 import {
   createBoardRenderer,
@@ -48,6 +52,7 @@ import {
 import { CONFIRM_TAP_FROM_GRID } from "../render/layout.ts";
 import { createStage, type Stage } from "../render/stage.ts";
 import { createScoreboard, type Scoreboard } from "./scoreboard.ts";
+import { wordmark } from "./wordmark.ts";
 
 const CLOCK_TICK_MS = 50;
 
@@ -67,6 +72,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     clientId: me,
     name: storedName() || "Player",
     ownerKey: ownerKey(),
+    colour: prefs().colour,
     onMessage: handle,
     onStatus(next) {
       status = next;
@@ -221,6 +227,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       clientId: me,
       name: storedName() || "Player",
       ...(ownerKey() ? { ownerKey: ownerKey() } : {}),
+      ...(prefs().colour >= 0 ? { colour: prefs().colour } : {}),
     });
   }
 
@@ -250,7 +257,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
   function mountConnecting() {
     root.innerHTML = `
       <main class="setup">
-        <h1>BOX</h1>
+        <h1>${wordmark()}</h1>
         <p class="tag">room ${escapeHtml(code)}</p>
         <p class="hint" id="conn">connecting…</p>
       </main>`;
@@ -266,8 +273,16 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     root.innerHTML = `
       <main class="setup lobby">
         <button class="linkish" id="leave">‹ Leave</button>
+
+        <!--
+          One tile per character. Read aloud across a room far more often than
+          it is typed, and four separate tiles are what stop "8" and "B" running
+          together when someone is squinting at a phone from across a table.
+        -->
+        <div class="code-tiles" aria-label="Room code ${escapeHtml(code)}">
+          ${[...code].map((ch) => `<span>${escapeHtml(ch)}</span>`).join("")}
+        </div>
         <p class="tag">room code</p>
-        <h1 class="code">${escapeHtml(code)}</h1>
         <button class="chip" id="share">Copy invite link</button>
 
         <section>
@@ -295,8 +310,14 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         </section>
 
         <p class="hint" id="grid"></p>
-        <button class="primary" id="ready">I'm ready</button>
+
+        <!--
+          Being in the room IS being ready, so there is no ready button. The
+          waiting box is deliberately the same height as the Start button, so
+          nothing on screen shifts at the moment the host presses it.
+        -->
         <button class="primary" id="start" hidden>Start game</button>
+        <div class="waiting" id="waiting" hidden><i></i><span id="waiting-text"></span></div>
         <p class="hint" id="lobby-status"></p>
       </main>`;
 
@@ -304,14 +325,10 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     const count = root.querySelector<HTMLElement>("#count")!;
     const watching = root.querySelector<HTMLElement>("#watching")!;
     const grid = root.querySelector<HTMLElement>("#grid")!;
-    const readyBtn = root.querySelector<HTMLButtonElement>("#ready")!;
     const startBtn = root.querySelector<HTMLButtonElement>("#start")!;
+    const waitingBox = root.querySelector<HTMLElement>("#waiting")!;
+    const waitingText = root.querySelector<HTMLElement>("#waiting-text")!;
     const statusEl = root.querySelector<HTMLElement>("#lobby-status")!;
-
-    readyBtn.addEventListener("click", () => {
-      const self = room?.players.find((p) => p.id === me);
-      net.send({ t: "ready", ready: !self?.ready });
-    });
 
     const modes = root.querySelector<HTMLElement>("#modes")!;
     const modeNote = root.querySelector<HTMLElement>("#mode-note")!;
@@ -336,19 +353,26 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
 
     updateView = () => {
       if (!room) return;
-      const self = room.players.find((p) => p.id === me);
       const isHost = room.hostId === me;
 
       count.textContent = `${room.players.length}`;
+      /*
+       * Which one is me: a hollow YOU tag, next to HOST when both apply. Tags
+       * rather than a highlighted row, because neither costs horizontal space —
+       * which matters at eight players on a 320px phone.
+       */
       roster.innerHTML = room.players
         .map(
           (p) => `
-        <li class="${p.ready ? "is-ready" : ""} ${p.connected ? "" : "is-away"}"
+        <li class="${p.connected ? "" : "is-away"}"
             style="--player-color:${PLAYER_COLORS[p.colorIndex] ?? "#888"}">
           <span class="dot"></span>
-          <span class="who">${escapeHtml(p.name)}${p.id === me ? " (you)" : ""}</span>
-          ${room!.hostId === p.id ? '<span class="badge">host</span>' : ""}
-          <span class="state">${p.connected ? (p.ready ? "ready" : "…") : "away"}</span>
+          <span class="who">${escapeHtml(p.name)}</span>
+          <span class="tags">
+            ${room!.hostId === p.id ? '<span class="badge">host</span>' : ""}
+            ${p.id === me ? '<span class="badge you">you</span>' : ""}
+          </span>
+          <span class="state">${p.connected ? "" : "away"}</span>
         </li>`,
         )
         .join("");
@@ -368,24 +392,35 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
           : "Classic dots and boxes";
 
       const n = room.config.gridSize || gridSizeFor(room.players.length);
+      let gated = false;
       for (const chip of sizes.querySelectorAll<HTMLButtonElement>(".chip")) {
-        chip.classList.toggle("selected", Number(chip.dataset.grid) === n);
-        chip.disabled = !isHost;
+        const chipGrid = Number(chip.dataset.grid);
+        const allowed = presetAllowed(chipGrid, room.players.length);
+        chip.classList.toggle("selected", chipGrid === n);
+        // Greyed, never hidden — players should see a size exists before they
+        // can pick it, and the row must not change height mid-lobby.
+        chip.disabled = !isHost || !allowed;
+        if (!allowed) gated = true;
       }
-      grid.textContent = `${n}×${n} · ${n * n} boxes · about ${estimatedMinutes(n)} min`;
+      grid.textContent = gated
+        ? `${n}×${n} · ${n * n} boxes · about ${estimatedMinutes(n)} min` +
+          ` · Grand needs ${GRAND_MIN_PLAYERS} players`
+        : `${n}×${n} · ${n * n} boxes · about ${estimatedMinutes(n)} min`;
 
-      readyBtn.textContent = self?.ready ? "Not ready" : "I'm ready";
-      readyBtn.hidden = !self;
+      // Exactly one of these is on screen at a time, and they are the same
+      // height, so the host pressing Start moves nothing for anyone else.
+      const enough = room.players.length >= MIN_PLAYERS;
       startBtn.hidden = !isHost;
-
-      const everyoneReady =
-        room.players.length >= 2 && room.players.every((p) => !p.connected || p.ready);
-      startBtn.disabled = !everyoneReady;
-      statusEl.textContent = isHost
-        ? everyoneReady
-          ? ""
-          : "Waiting for everyone to be ready"
-        : "Waiting for the host to start";
+      startBtn.disabled = !enough;
+      waitingBox.hidden = isHost;
+      if (!isHost) {
+        const host = room.players.find((p) => p.id === room!.hostId);
+        waitingText.textContent = host
+          ? `Waiting for ${host.name} to start`
+          : "Waiting for the host to start";
+      }
+      statusEl.textContent =
+        isHost && !enough ? `Need at least ${MIN_PLAYERS} players` : "";
     };
 
     disposeView = () => {
@@ -455,6 +490,8 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     const scoreboard: Scoreboard = createScoreboard(
       root.querySelector<HTMLElement>("#scoreboard")!,
       players,
+      // -1 for a spectator, who has no panel of their own to mark.
+      room?.players.findIndex((p) => p.id === me) ?? -1,
     );
     const renderer: BoardRenderer = createBoardRenderer(
       boardHost.clientWidth || 320,
@@ -472,6 +509,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       ghost: null,
       ghostColor: players[myIndex]?.color ?? "#888",
       doomed: [],
+      costPreview: [],
     };
 
     function syncBoardView() {
@@ -482,6 +520,8 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       // Recomputed on state change, not per frame — the pulse itself is driven
       // by the clock inside the renderer.
       boardView.doomed = isShrinkWarning(state) ? ringBoxes(state) : [];
+      // Only ever your own price — showing everyone's would be unreadable.
+      boardView.costPreview = costPreviewFor(state, myIndex);
     }
 
     const stage: Stage = createStage(
@@ -790,4 +830,17 @@ function escapeHtml(raw: string): string {
     (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c,
   );
+}
+
+/**
+ * The Wildcard price, shown only while it is actually payable: your turn, in
+ * twist, affordable, and you are not already holding the maximum. Outside that
+ * it is noise on a board people are trying to read.
+ */
+function costPreviewFor(s: GameState, playerIndex: number): number[] {
+  if (s.mode !== "twist" || s.phase !== "playing") return [];
+  if (playerIndex < 0 || playerIndex !== currentPlayer(s)) return [];
+  if (s.charges[playerIndex] >= MAX_WILDCARD_CHARGES) return [];
+  if (s.scores[playerIndex] < WILDCARD_COST) return [];
+  return wildcardCostPreview(s, playerIndex);
 }

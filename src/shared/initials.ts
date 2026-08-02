@@ -1,9 +1,9 @@
 /**
- * Turning player names into the single letters shown inside claimed boxes.
+ * Turning player names into the short labels shown inside claimed boxes.
  *
  * Pure, and shared so the server and every client derive the same letters from
- * the same roster — an initial that differs between screens would be worse than
- * no initial at all.
+ * the same roster — a label that differs between screens would be worse than no
+ * label at all.
  */
 
 /** Letters and digits from a name, uppercased, in order. */
@@ -14,33 +14,60 @@ function usableChars(name: string): string[] {
 const FALLBACK_POOL = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"];
 
 /**
- * One distinct letter per player, in roster order.
+ * Nobody needs four characters to tell two people apart, and a four-character
+ * label does not fit in a box on a Grand board.
+ */
+const MAX_LETTERS = 3;
+
+/**
+ * One letter per player where possible, in roster order.
  *
- * A player gets the first letter of their name. If that is already taken, they
- * fall through to their SECOND letter, then their third, and so on — so Ada and
- * Alan become A and L rather than A and a meaningless B.
+ * If two people in the room share a first letter, **everyone who clashes grows
+ * a letter** until they are all different — `Sarah` + `Smith` become `Sa` + `Sm`
+ * rather than one of them keeping `S` and the other jumping to an unrelated
+ * letter. Growing together is legible; jumping is not. `Alan` after `Ada` used
+ * to become `L`, which nobody could connect back to a name.
  *
- * Earlier players keep their first initial; only the later clashing name moves.
- * That matters because someone who has been in the lobby a while should not have
- * their letter changed by a newcomer.
+ * Note this deliberately reverses the older "earlier players keep their letter"
+ * rule: a newcomer whose name clashes now does change the incumbent's label,
+ * from `S` to `Sa`. It is the same first letter with more of the same name after
+ * it, so it still reads as theirs, and the roster locks when the game starts —
+ * so it can only ever happen in the lobby.
+ *
+ * Colour is the primary identifier; the letter is a shortcut.
  */
 export function assignInitials(names: string[]): string[] {
+  const chars = names.map(usableChars);
+  const out = chars.map((c) => c.slice(0, 1).join(""));
+
+  for (let length = 1; length < MAX_LETTERS; length++) {
+    const seen = new Map<string, number>();
+    for (const label of out) seen.set(label, (seen.get(label) ?? 0) + 1);
+    if (![...seen.values()].some((n) => n > 1)) break;
+
+    for (let i = 0; i < out.length; i++) {
+      if ((seen.get(out[i]!) ?? 0) > 1) {
+        out[i] = chars[i]!.slice(0, length + 1).join("");
+      }
+    }
+  }
+
+  /*
+   * Two people called the exact same thing still collide at the cap, as does
+   * anyone whose name has no usable characters at all. Fall back to any unused
+   * character rather than putting the same label on two players' boxes.
+   */
   const taken = new Set<string>();
-  return names.map((name) => {
-    for (const c of usableChars(name)) {
-      if (!taken.has(c)) {
-        taken.add(c);
-        return c;
-      }
+  for (let i = 0; i < out.length; i++) {
+    const label = out[i]!;
+    if (label !== "" && !taken.has(label)) {
+      taken.add(label);
+      continue;
     }
-    // Every letter of their name is spoken for (e.g. "Bob" after "B" and "O"
-    // are gone). Fall back to any unused character so the board stays readable.
-    for (const c of FALLBACK_POOL) {
-      if (!taken.has(c)) {
-        taken.add(c);
-        return c;
-      }
-    }
-    return "?";
-  });
+    const free = FALLBACK_POOL.find((c) => !taken.has(c)) ?? "?";
+    out[i] = free;
+    taken.add(free);
+  }
+
+  return out;
 }

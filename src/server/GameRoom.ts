@@ -6,8 +6,11 @@ import {
   MAX_PLAYERS,
   MAX_SPECTATORS,
   MIN_PLAYERS,
+  PLAYER_COLORS,
   PROTOCOL_VERSION,
   gridSizeFor,
+  MAX_GRID,
+  presetAllowed,
 } from "../shared/constants.ts";
 import {
   decode,
@@ -50,6 +53,11 @@ interface StoredPlayer {
   colorIndex: number;
   connected: boolean;
   ready: boolean;
+  /**
+   * Colour this player asked for in Settings, or undefined. Granted by
+   * `refreshRoster` if free; otherwise they quietly get the next open one.
+   */
+  preferredColor?: number;
   /** Proved they hold the owner key. Outranks join order for hosting. */
   isOwner: boolean;
 }
@@ -134,8 +142,34 @@ export class GameRoom extends Server<Env> {
     const initials = assignInitials(room.players.map((p) => p.name));
     room.players.forEach((p, i) => {
       p.initial = initials[i] ?? "?";
-      p.colorIndex = i;
     });
+
+    /*
+     * Colours: your favourite if it is still free, otherwise the next open one.
+     * Silently — no prompt and no error, because a colour is not worth
+     * interrupting anyone over, and the letter and the YOU tag both still say
+     * which player is which.
+     *
+     * Earlier players win a contested colour, so someone already in the lobby
+     * never has theirs taken by a newcomer.
+     */
+    const used = new Set<number>();
+    for (const p of room.players) {
+      const want = p.preferredColor;
+      if (want !== undefined && want >= 0 && want < PLAYER_COLORS.length && !used.has(want)) {
+        p.colorIndex = want;
+        used.add(want);
+      } else {
+        p.colorIndex = -1;
+      }
+    }
+    let next = 0;
+    for (const p of room.players) {
+      if (p.colorIndex >= 0) continue;
+      while (used.has(next)) next++;
+      p.colorIndex = next;
+      used.add(next);
+    }
 
     // The owner is host whenever they are connected, whatever the join order.
     // Otherwise the existing host keeps it while they are still here, and
@@ -199,9 +233,6 @@ export class GameRoom extends Server<Env> {
         return;
       case "ping":
         this.send(connection, { t: "pong", t0: msg.t0, serverNow: Date.now() });
-        return;
-      case "ready":
-        await this.onReady(connection, room, msg.ready);
         return;
       case "configure":
         await this.onConfigure(connection, room, msg);
@@ -284,10 +315,13 @@ export class GameRoom extends Server<Env> {
     const owns = this.isOwnerKey(msg.ownerKey);
 
     if (player) {
-      // Reconnect: keep the slot, colour, score and inventory.
+      // Reconnect: keep the slot, score and inventory.
       player.connected = true;
       player.name = name;
       if (owns) player.isOwner = true;
+      // A colour changed in Settings takes effect on the next connection —
+      // still only if it happens to be free by then.
+      if (typeof msg.colour === "number") player.preferredColor = msg.colour;
       delete room.grace[player.id];
     } else if (spectator) {
       spectator.connected = true;
@@ -304,6 +338,7 @@ export class GameRoom extends Server<Env> {
         colorIndex: room.players.length,
         connected: true,
         ready: false,
+        ...(typeof msg.colour === "number" ? { preferredColor: msg.colour } : {}),
         isOwner: owns,
       });
     } else {
@@ -331,14 +366,6 @@ export class GameRoom extends Server<Env> {
     this.broadcastRoom(connection.id);
   }
 
-  private async onReady(connection: Connection, room: RoomState, ready: boolean) {
-    const player = this.playerFor(connection, room);
-    if (!player || room.phase !== "lobby") return;
-    player.ready = ready;
-    await this.save();
-    this.broadcastRoom();
-  }
-
   private async onConfigure(
     connection: Connection,
     room: RoomState,
@@ -354,7 +381,15 @@ export class GameRoom extends Server<Env> {
 
     if (msg.mode) room.config.mode = msg.mode;
     if (typeof msg.gridSize === "number") {
-      room.config.gridSize = Math.max(0, Math.min(12, Math.floor(msg.gridSize)));
+      const requested = Math.max(0, Math.min(MAX_GRID, Math.floor(msg.gridSize)));
+      // The lobby greys out sizes this roster can't have, but the client is
+      // never the authority on that — 0 means "use the default for the roster".
+      if (requested === 0 || presetAllowed(requested, room.players.length)) {
+        room.config.gridSize = requested;
+      } else {
+        this.fail(connection, "board-too-big", "That board needs more players");
+        return;
+      }
     }
     await this.save();
     this.broadcastRoom();
@@ -376,10 +411,15 @@ export class GameRoom extends Server<Env> {
       this.fail(connection, "not-enough-players", `Need at least ${MIN_PLAYERS} players`);
       return;
     }
-    if (!present.every((p) => p.ready)) {
-      this.fail(connection, "not-ready", "Everyone needs to be ready");
-      return;
-    }
+    /*
+     * No ready check. Being in the room IS being ready — a lobby of people who
+     * have already opened the link and are looking at the same screen does not
+     * need them each to press a button saying so. Only the host can start, and
+     * the roster locks below.
+     *
+     * `ready` survives on the player because REMATCH voting still uses it, where
+     * a per-player yes genuinely means something.
+     */
 
     // The roster locks here. Anyone arriving from now on spectates.
     room.players = present;
@@ -387,7 +427,16 @@ export class GameRoom extends Server<Env> {
     this.refreshRoster(room);
     room.grace = {};
 
-    const n = room.config.gridSize || gridSizeFor(room.players.length);
+    /*
+     * Re-check at start, not just at configure: a lobby can pick Grand with
+     * four people and then two of them leave, which would otherwise start a
+     * 420-move game for a pair.
+     */
+    const chosen = room.config.gridSize;
+    const n =
+      chosen && presetAllowed(chosen, room.players.length)
+        ? chosen
+        : gridSizeFor(room.players.length);
     const state = createGame({
       n,
       mode: room.config.mode,

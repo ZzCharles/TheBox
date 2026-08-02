@@ -2,9 +2,14 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { boxId, lineBoxes, lineCount } from "./board.ts";
-import { SHRINK_INTERVAL_ROTATIONS, shrinkArmFraction } from "./constants.ts";
+import {
+  SHRINK_FLOOR_SQUARES,
+  SHRINK_INTERVAL_ROTATIONS,
+  shrinkArmFraction,
+} from "./constants.ts";
 import {
   applyMove,
+  canCollapse,
   createGame,
   currentPlayer,
   DEAD,
@@ -42,17 +47,17 @@ function assertScoreInvariant(s: GameState, note: string) {
 
 describe("shrinking board — arming", () => {
   it("never arms in simple mode", () => {
-    const s = createGame({ n: 6, mode: "simple", playerCount: 2 });
+    const s = createGame({ n: 8, mode: "simple", playerCount: 2 });
     playUntil(s, () => false);
     assert.equal(s.collapseAtRotation, null);
     assert.equal(s.bounds.r0, 0);
-    assert.equal(s.bounds.r1, 5);
+    assert.equal(s.bounds.r1, 7);
     assert.ok(![...s.boxes].includes(DEAD), "simple mode must never kill a box");
   });
 
   it("arms only once enough of the board is committed", () => {
-    const s = createGame({ n: 6, mode: "twist", playerCount: 2 });
-    const threshold = shrinkArmFraction(2) * lineCount(6);
+    const s = createGame({ n: 8, mode: "twist", playerCount: 2 });
+    const threshold = shrinkArmFraction(2) * lineCount(8);
 
     playUntil(s, (g) => g.collapseAtRotation !== null);
     assert.notEqual(s.collapseAtRotation, null, "should arm eventually");
@@ -68,7 +73,7 @@ describe("shrinking board — arming", () => {
   });
 
   it("gives two rounds of notice before the first collapse", () => {
-    const s = createGame({ n: 6, mode: "twist", playerCount: 3 });
+    const s = createGame({ n: 8, mode: "twist", playerCount: 3 });
     playUntil(s, (g) => g.collapseAtRotation !== null);
 
     assert.equal(
@@ -85,7 +90,7 @@ describe("shrinking board — arming", () => {
   });
 
   it("counts down, then pulses on the last round, then collapses", () => {
-    const s = createGame({ n: 6, mode: "twist", playerCount: 3 });
+    const s = createGame({ n: 8, mode: "twist", playerCount: 3 });
     playUntil(s, (g) => g.collapseAtRotation !== null);
 
     const seen: Array<{ rounds: number | null; pulsing: boolean; dead: number }> = [];
@@ -119,10 +124,10 @@ describe("shrinking board — arming", () => {
   });
 
   it("reports no countdown in simple mode or before arming", () => {
-    const simple = createGame({ n: 6, mode: "simple", playerCount: 2 });
+    const simple = createGame({ n: 8, mode: "simple", playerCount: 2 });
     assert.equal(roundsUntilCollapse(simple), null);
 
-    const twist = createGame({ n: 6, mode: "twist", playerCount: 2 });
+    const twist = createGame({ n: 8, mode: "twist", playerCount: 2 });
     assert.equal(roundsUntilCollapse(twist), null, "not armed yet");
     assert.equal(isShrinkWarning(twist), false);
   });
@@ -168,21 +173,21 @@ describe("shrinking board — collapse", () => {
   }
 
   it("removes the outer ring and contracts the bounds by one", () => {
-    const s = toFirstCollapse(6, 2);
-    assert.deepEqual(s.bounds, { r0: 1, c0: 1, r1: 4, c1: 4 });
+    const s = toFirstCollapse(8, 2);
+    assert.deepEqual(s.bounds, { r0: 1, c0: 1, r1: 6, c1: 6 });
 
-    for (let c = 0; c < 6; c++) {
-      assert.equal(s.boxes[boxId(6, 0, c)], DEAD, `top row box ${c}`);
-      assert.equal(s.boxes[boxId(6, 5, c)], DEAD, `bottom row box ${c}`);
+    for (let c = 0; c < 8; c++) {
+      assert.equal(s.boxes[boxId(8, 0, c)], DEAD, `top row box ${c}`);
+      assert.equal(s.boxes[boxId(8, 7, c)], DEAD, `bottom row box ${c}`);
     }
-    for (let r = 0; r < 6; r++) {
-      assert.equal(s.boxes[boxId(6, r, 0)], DEAD, `left col box ${r}`);
-      assert.equal(s.boxes[boxId(6, r, 5)], DEAD, `right col box ${r}`);
+    for (let r = 0; r < 8; r++) {
+      assert.equal(s.boxes[boxId(8, r, 0)], DEAD, `left col box ${r}`);
+      assert.equal(s.boxes[boxId(8, r, 7)], DEAD, `right col box ${r}`);
     }
   });
 
   it("lets owners keep points for claimed tiles, and records them as harvested", () => {
-    const { state: s, shrink, scoresBefore, claimedByMove } = runToFirstCollapse(6, 2);
+    const { state: s, shrink, scoresBefore, claimedByMove } = runToFirstCollapse(8, 2);
 
     // The only score change across that move is the boxes the move itself
     // claimed — harvesting an already-earned tile must not add or remove points.
@@ -203,8 +208,25 @@ describe("shrinking board — collapse", () => {
     assertScoreInvariant(s, "after first collapse");
   });
 
+  it("remembers who owned each harvested tile, so the ash stays countable", () => {
+    const { state: s, shrink } = runToFirstCollapse(8, 2);
+
+    for (const { box, owner } of shrink.harvested) {
+      assert.equal(
+        s.formerOwner[box],
+        owner,
+        `harvested box ${box} should remember player ${owner}`,
+      );
+    }
+    // A tile nobody had claimed carries no letter into the ash.
+    for (const box of shrink.removedBoxes) {
+      if (shrink.harvested.some((h) => h.box === box)) continue;
+      assert.equal(s.formerOwner[box], -1, `box ${box} was never anyone's`);
+    }
+  });
+
   it("destroys unclaimed ring tiles so they can never be scored", () => {
-    const { state: s, shrink, remainingBefore, claimedByMove } = runToFirstCollapse(6, 2);
+    const { state: s, shrink, remainingBefore, claimedByMove } = runToFirstCollapse(8, 2);
 
     // No wildcards bought here, so every removed tile is either harvested or
     // was unclaimed and is now gone for good.
@@ -239,7 +261,9 @@ describe("shrinking board — collapse", () => {
   });
 
   it("schedules the next collapse two rotations later", () => {
-    const s = createGame({ n: 8, mode: "twist", playerCount: 2 });
+    // Large enough that the floor still leaves another ring to take — on an
+    // 8x8 the first collapse is also the last, and nothing is rescheduled.
+    const s = createGame({ n: 12, mode: "twist", playerCount: 2 });
     playUntil(s, (g) => g.bounds.r0 > 0);
     const firstAt = s.rotations;
     assert.equal(s.collapseAtRotation, firstAt + SHRINK_INTERVAL_ROTATIONS);
@@ -247,7 +271,8 @@ describe("shrinking board — collapse", () => {
 
   it("collapses repeatedly and always terminates the game", () => {
     for (const players of [2, 4, 6]) {
-      const s = createGame({ n: 8, mode: "twist", playerCount: players });
+      // Large, so there is room for more than one collapse before the floor.
+      const s = createGame({ n: 12, mode: "twist", playerCount: players });
       const moves = playUntil(s, () => false, 2000);
 
       assert.equal(s.phase, "over", `${players}p game should finish`);
@@ -260,7 +285,7 @@ describe("shrinking board — collapse", () => {
   });
 
   it("keeps the score invariant after every single move of a twist game", () => {
-    const s = createGame({ n: 6, mode: "twist", playerCount: 3 });
+    const s = createGame({ n: 8, mode: "twist", playerCount: 3 });
     let guard = 0;
     while (s.phase === "playing" && guard++ < 1000) {
       const legal = legalMoves(s);
@@ -272,7 +297,7 @@ describe("shrinking board — collapse", () => {
   });
 
   it("never leaves a playable line bordering only dead boxes", () => {
-    const s = createGame({ n: 8, mode: "twist", playerCount: 2 });
+    const s = createGame({ n: 12, mode: "twist", playerCount: 2 });
     playUntil(s, (g) => g.bounds.r0 > 1); // at least two collapses
     for (const id of legalMoves(s)) {
       assert.ok(s.lines[id] === 0, "legal moves must be empty lines");
@@ -281,28 +306,92 @@ describe("shrinking board — collapse", () => {
   });
 });
 
+describe("shrinking board — the floor", () => {
+  /** Bounds of a live area `size` squares on a side, on any big enough board. */
+  const areaOf = (size: number) => ({ r0: 0, c0: 0, r1: size - 1, c1: size - 1 });
+
+  it("allows a collapse only while the short side would survive it", () => {
+    const s = createGame({ n: 14, mode: "twist", playerCount: 2 });
+    for (const size of [14, 12, 10, 8]) {
+      s.bounds = areaOf(size);
+      assert.ok(canCollapse(s), `${size}x${size} has a ring to give`);
+    }
+    for (const size of [7, 6, 5, 2]) {
+      s.bounds = areaOf(size);
+      assert.ok(!canCollapse(s), `${size}x${size} is at or under the floor`);
+    }
+  });
+
+  it("stops the moment the short side is the floor, even on an oblong area", () => {
+    const s = createGame({ n: 14, mode: "twist", playerCount: 2 });
+    // Wide but only 7 tall: the short side is what decides.
+    s.bounds = { r0: 0, c0: 0, r1: 6, c1: 13 };
+    assert.ok(!canCollapse(s));
+  });
+
+  /** However a game plays out, it never burns past the floor. */
+  for (const n of [8, 10, 12, 14]) {
+    it(`never takes a ${n}x${n} board below the floor`, () => {
+      const s = createGame({ n, mode: "twist", playerCount: 4 });
+      playUntil(s, () => false, 4000);
+
+      const width = s.bounds.c1 - s.bounds.c0 + 1;
+      const height = s.bounds.r1 - s.bounds.r0 + 1;
+      assert.ok(
+        Math.min(width, height) >= SHRINK_FLOOR_SQUARES,
+        `${n}x${n} ended at ${width}x${height}, under the ${SHRINK_FLOOR_SQUARES} floor`,
+      );
+      assert.equal(s.phase, "over", "and the game still finishes");
+      assertScoreInvariant(s, `${n}x${n} at the floor`);
+    });
+  }
+
+  it("stops counting down once no further collapse is possible", () => {
+    const s = createGame({ n: 8, mode: "twist", playerCount: 3 });
+    playUntil(s, (g) => g.bounds.r0 > 0);
+
+    assert.equal(
+      roundsUntilCollapse(s),
+      null,
+      "a countdown to a collapse that can never happen is a lie",
+    );
+    assert.equal(isShrinkWarning(s), false);
+  });
+
+  it("never arms at all on a board already at the floor", () => {
+    const s = createGame({ n: SHRINK_FLOOR_SQUARES, mode: "twist", playerCount: 2 });
+    playUntil(s, () => false, 2000);
+
+    assert.equal(s.collapseAtRotation, null);
+    assert.ok(![...s.boxes].includes(DEAD), "nothing may burn below the floor");
+    assert.equal(s.phase, "over", "it just plays out as an ordinary game");
+  });
+});
+
 describe("shrinking board — interaction with the wildcard", () => {
   it("removes burned tiles without crediting anyone", () => {
-    const s = createGame({ n: 6, mode: "twist", playerCount: 2 });
+    const s = createGame({ n: 8, mode: "twist", playerCount: 2 });
 
     // Hand player 0 a row of boxes on the outer ring, then burn them.
-    for (let c = 0; c < 6; c++) {
-      s.boxes[boxId(6, 0, c)] = 0;
+    for (let c = 0; c < 8; c++) {
+      s.boxes[boxId(8, 0, c)] = 0;
       s.boxesRemaining--;
     }
-    s.scores[0] = 6;
-    s.boxes[boxId(6, 0, 0)] = SPENT;
-    s.boxes[boxId(6, 0, 1)] = SPENT;
+    s.scores[0] = 8;
+    s.boxes[boxId(8, 0, 0)] = SPENT;
+    s.boxes[boxId(8, 0, 1)] = SPENT;
     s.scores[0] -= 2;
 
     playUntil(s, (g) => g.bounds.r0 > 0, 2000);
 
-    assert.equal(s.boxes[boxId(6, 0, 0)], DEAD);
-    assert.equal(s.boxes[boxId(6, 0, 1)], DEAD);
-    assert.equal(
-      s.harvested[0],
-      4,
-      "only the four still-owned tiles harvest; burned ones count for nobody",
+    assert.equal(s.boxes[boxId(8, 0, 0)], DEAD);
+    assert.equal(s.boxes[boxId(8, 0, 1)], DEAD);
+    // Six of the eight were still owned at the collapse; play may have won
+    // player 0 more of the ring, but never those two. The score invariant below
+    // is what proves the burned pair credited nobody.
+    assert.ok(
+      s.harvested[0] >= 6,
+      `expected the six still-owned tiles to harvest, got ${s.harvested[0]}`,
     );
     assertScoreInvariant(s, "burned tiles in a collapsing ring");
   });

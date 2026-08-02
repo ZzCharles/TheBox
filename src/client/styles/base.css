@@ -1,10 +1,31 @@
+/*
+ * One variable font, self-hosted — no CDN. Archivo carries a weight axis
+ * (100-900) AND a width axis (62-125%), which is why a single file covers both
+ * the heavy wide wordmark and ordinary UI text. Its figures are tabular, so
+ * score counters don't jitter as they count up.
+ */
+@font-face {
+  font-family: "Archivo";
+  src: url("/fonts/Archivo.woff2") format("woff2");
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  /* block, not swap: the wordmark is the first thing on screen, and a flash of
+     fallback type ruins the reveal. */
+  font-display: block;
+}
+
 :root {
-  --bg-deep: #0b0d12;
-  --surface: #171b26;
-  --dot: #ffc24b;
-  --dot-glow: #ffb020;
+  --ink: #0b0d12; /* page background */
+  --rise: #131722; /* top of the background gradient */
+  --panel: #171b26; /* card and panel surface */
+  --panel2: #1c2130; /* raised / active surface */
+  --edge: #242b3d; /* default border */
+  --edge2: #323b52; /* hover / emphasis border */
+  --dot: #ffc24b; /* dot core */
+  --glow: #ffb020; /* dot glow */
   --text: #e8eaf0;
-  --text-dim: #7a8296;
+  --dim: #7a8296;
+  --dead: #2a3040; /* dead dot, burned tile */
 
   color-scheme: dark;
 }
@@ -21,10 +42,16 @@ body {
 }
 
 body {
+  /*
+   * A warm lamp over a dark table. The lower layer is the original cool blue
+   * rise; the very low amber wash on top is what stops it reading as a cold
+   * screen instead of a lit surface.
+   */
   background:
-    radial-gradient(120% 90% at 50% 0%, #131722 0%, var(--bg-deep) 70%);
+    radial-gradient(120% 62% at 50% -10%, rgb(255 176 32 / 5.5%), transparent 60%),
+    radial-gradient(150% 90% at 50% 0%, var(--rise), var(--ink) 58%);
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
@@ -35,6 +62,112 @@ body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * Grain. A 3px dot texture at 3% over everything, so the dark reads as a
+ * surface rather than a void. Never interactive.
+ */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.03;
+  background-image: radial-gradient(circle at 1px 1px, #fff 1px, transparent 0);
+  background-size: 3px 3px;
+}
+
+/* ---------------------------------------------------------- the wordmark ---
+ *
+ * Geometry is in fractions of font-size throughout, so the mark holds together
+ * at any size it is set in.
+ */
+
+.tiki {
+  display: inline-block;
+  white-space: nowrap;
+  font-weight: 800;
+  font-stretch: 112%;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  color: var(--text);
+}
+
+.tiki .mk {
+  position: relative;
+  display: inline-block;
+  width: 0.2em;
+  height: 0.8em;
+  vertical-align: baseline;
+  margin: 0 0.035em;
+}
+
+/* The dot of the first i — a real game dot. */
+.tiki .mk s {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 0.19em;
+  height: 0.19em;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: var(--dot);
+  box-shadow:
+    0 0 0.1em 0.035em rgb(255 176 32 / 75%),
+    0 0 0.34em 0.08em rgb(255 176 32 / 30%);
+}
+
+/* Its stem — a real drawn line. */
+.tiki .mk b {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 0.135em;
+  height: 0.52em;
+  margin-left: -0.0675em;
+  border-radius: 0.07em;
+  background: var(--dot);
+  transform-origin: top center;
+  box-shadow: 0 0 0.12em rgb(255 176 32 / 55%);
+}
+
+/*
+ * On load the mark assembles itself, so the logo performs the game's own
+ * gesture: the dot lands with a slight overshoot, then the stem draws downward
+ * from it over 140ms — the same duration and easing as placing a line in game.
+ *
+ * `both` is doing real work: it holds the stem at scaleY(0) through the delay.
+ * Without backwards fill the finished mark flashes on screen and then snaps
+ * back to nothing to draw itself.
+ */
+.tiki.assemble .mk s {
+  animation: mark-dot 260ms cubic-bezier(0.3, 1.5, 0.6, 1) both;
+}
+
+.tiki.assemble .mk b {
+  animation: mark-stem 140ms cubic-bezier(0.2, 0.7, 0.3, 1) 200ms both;
+}
+
+@keyframes mark-dot {
+  from {
+    transform: translate(-50%, -0.58em);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+@keyframes mark-stem {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
 }
 
 #app {
@@ -60,7 +193,7 @@ body {
 }
 
 .tag {
-  color: var(--text-dim);
+  color: var(--dim);
   font-size: 0.8rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -70,7 +203,7 @@ dl {
   display: grid;
   grid-template-columns: auto auto;
   gap: 0.35rem 1.5rem;
-  background: var(--surface);
+  background: var(--panel);
   padding: 1rem 1.5rem;
   border-radius: 0.75rem;
   box-shadow: 0 8px 32px rgb(0 0 0 / 50%);
@@ -78,7 +211,7 @@ dl {
 }
 
 dt {
-  color: var(--text-dim);
+  color: var(--dim);
   text-align: right;
 }
 
@@ -89,7 +222,7 @@ dd {
 
 .status {
   font-size: 0.85rem;
-  color: var(--text-dim);
+  color: var(--dim);
 }
 
 .status.ok {

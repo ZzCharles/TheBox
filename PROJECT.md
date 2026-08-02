@@ -1,10 +1,10 @@
-# BOX — Project Brief & Architecture
+# Tiki — Project Brief & Architecture
 
-> **Working title:** BOX (rename pending — see Open Questions)
+> **Name:** **Tiki** (was BOX; renamed 2026-08-02).
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M5 complete, M6 underway (layout/UX done, audio + set-pieces to go).
-> First LAN playtest passed — "it feels alright".
-> **Last updated:** 2026-07-31
+> **Status:** M0–M5 complete. M6 is done bar audio and the set-piece animations.
+> The whole visual pass has landed; the game has not been played since it did.
+> **Last updated:** 2026-08-02
 
 ---
 
@@ -16,31 +16,39 @@ then jump to whatever milestone is unticked in §15.
 When something is decided, move it out of §16 (Open Questions) and into the body.
 When a milestone completes, tick it in §15 and update `Last updated` above.
 
-**Companion doc:** `DESIGN-BRIEF.md` is the self-contained visual brief for designing the
-look and the set-piece animations in a separate chat. It restates the constraints that
-matter for design; this file stays the engineering reference.
+**Companion docs.** `DESIGN-BRIEF.md` was the brief sent to the design chat. What came back
+is in `design/`:
+
+- `design/TIKI-HANDOVER.md` — the colour sheet, type scale and behaviour changes. **Sections
+  1–5 are built.** §6 (the Twist burn) is not.
+- `design/tiki-board.html`, `tiki-ui.html`, `box-start-sequence.html` — reference prototypes
+  with live tuning panels. Press **T** to open one. **Do not copy code out of them**; they
+  have their own fake state and layout. Tune, press `Copy values`, and paste the sheet.
+  Settings are saved per browser, so a tuning session survives a reload.
+
+This file stays the engineering reference.
 
 ### Where the project stands
 
-**The game is finished and playable.** All rules, real-time multiplayer, lobby, reconnect,
-spectators, rematch and twist mode work, and have been played on real phones over a LAN.
-82 tests pass. What remains is presentation.
+**The game is finished, playable, and now looks the way it was designed to.** All rules,
+real-time multiplayer, lobby, reconnect, spectators, rematch and twist mode work. 107 tests
+pass. What remains is the things that MOVE and the things that make NOISE.
 
 | Area | State |
 |---|---|
-| Rules engine | ✅ Done, pure, 82 tests |
+| Rules engine | ✅ Done, pure, 107 tests |
 | Multiplayer / server | ✅ Done, authoritative, survives restarts |
-| Board rendering + input | ✅ Done, 0.7 ms/frame |
-| Twist mode | ✅ Done |
-| Game screen layout | ✅ Done (M6) |
-| **Sound** | ❌ Silent — highest-value gap |
-| **Start sequence** | ❌ No Play button animation |
+| Board rendering + input | ✅ Done, design values applied, 0.7 ms/frame |
+| Twist mode | ✅ Done, with the shrink floor |
+| Screens: landing, settings, lobby, game | ✅ Done — full colour, type and behaviour pass |
+| **Sound** | ❌ Silent — highest-value gap. The Settings toggle stores a preference nothing reads yet. |
+| **Twist burn** | ❌ A ring still vanishes in one frame. Ash and dead dots are drawn; the FIRE is not. Fully specced in the handover §6. |
+| **Start sequence** | ❌ No Play button animation, no carpet-in |
 | **Endgame sequence** | ❌ Winner overlay only, no shatter |
-| **Shrink collapse animation** | ❌ Instant, with a toast |
 | **PWA / installable** | ❌ Not started |
 | **Deployed** | ✅ https://box.charlesbobby253.workers.dev |
 
-**Live since 2026-07-31.** Verified against the deployed site, not just dev: room creation,
+**Live since 2026-07-31, redeployed 2026-08-02** with everything below. Verified against the deployed site, not just dev: room creation,
 code lookup, two WebSocket clients joining, a move propagating to both, and a **28 ms median
 round-trip**. Redeploy with `npm.cmd run deploy` (~30 seconds).
 
@@ -242,7 +250,14 @@ storage after every mutation (cheap, and survives eviction).
     └─────────────── rematch ─────────┴──────── all-ready ───────────────┘
 ```
 
-- `LOBBY` — players join/leave/ready. Host configures mode, player cap, grid size, clock.
+- `LOBBY` — players join and leave. Host configures mode, player cap, grid size, clock.
+  **There is no ready step** (revised 2026-08-02): being in the room *is* being ready, and
+  only the host can start. Everyone has already opened the link and is looking at the same
+  screen; a button to confirm that is pure ceremony. Non-hosts see
+  `Waiting for {host} to start` in a box the **exact same height** as the Start button, so
+  nothing on screen moves at the moment the host presses it. The `ready` flag survives on
+  the player because **rematch voting still uses it**, where a per-player yes means
+  something; the `ready` *message* is gone and `PROTOCOL_VERSION` is 3.
 - `COUNTDOWN` — 3s, non-cancellable. Locks the roster. Late joins become spectators.
   *Not built at M3 — start goes straight to `PLAYING`, and the roster locks there instead.
   The countdown arrives with the Play-button sequence in M6.*
@@ -307,14 +322,31 @@ room. If everyone is benched, the match pauses (clock stops) rather than ending.
 ### 6.5 Identity, initials and the owner
 
 **Initials come from names**, via `assignInitials()` in `src/shared/initials.ts` — pure and
-tested. Each player takes the first letter of their name; if it is already taken they fall
-through to their *second* letter, then their third. Ada and Alan become **A** and **L**.
-Earlier players keep their letter — a newcomer never displaces someone who has been in the
-lobby, which would be jarring mid-game.
+tested. One letter each. If two people share a first letter, **everyone who clashes grows a
+letter** until they are all different, capped at three: `Sarah` + `Smith` → **Sa** + **Sm**,
+`Ada` + `Alan` → **Ad** + **Al**.
+
+This reverses the earlier rule (revised 2026-08-02, was: fall through to your *second*
+letter, so Alan became **L**, and earlier players never moved). Growing together is legible
+and jumping is not — nobody could connect **L** back to Alan. The cost is that a newcomer
+now does change an incumbent's label, from **S** to **Sa**; it is the same first letter with
+more of the same name after it, and the roster locks at game start, so it can only ever
+happen in the lobby. Colour stays the primary identifier; the letter is a shortcut.
+
+Labels can therefore be 1–3 characters, and the board renderer sizes the font by length
+(`PAINT.box.initialByLength`) — a three-letter label at the one-letter size runs out of its
+box.
 
 Initials are **derived, never stored authoritatively**: `refreshRoster()` recomputes them
 (and colours, and the host) after any change to the roster or a name, so a rename updates
 every screen at once.
+
+**Colours are a preference, not an assignment** (added 2026-08-02). Settings holds a
+favourite colour, sent with every `hello` as an index into `PLAYER_COLORS`. `refreshRoster`
+grants it if it is still free and otherwise hands out the next open one — **silently**, with
+no prompt and no error, because a colour is not worth interrupting anyone over. Earlier
+players win a contested colour, so nobody in the lobby loses theirs to a newcomer. Changing
+it in Settings takes effect on your next connection.
 
 **The name is remembered on the device.** Asked for once, then shown as "Playing as X ·
 change". Retyping it every session is pure friction for a game played with the same people.
@@ -349,7 +381,6 @@ JSON over WebSocket. Every message is `{ t: string, ...payload }`. Include
 | `t` | Payload | Notes |
 |---|---|---|
 | `hello` | `clientId, name, resumeToken?` | `clientId` persisted in localStorage |
-| `ready` | `ready: boolean` | lobby only |
 | `configure` | `mode, maxPlayers, gridSize?, turnSeconds` | host only |
 | `start` | — | host only |
 | `move` | `lineId, turnSeq` | `turnSeq` makes it idempotent |
@@ -422,16 +453,28 @@ functions that know this encoding — everything else uses ids.
 mean nothing to a player — "10×10" does not communicate "this is a twenty-minute game" —
 so the lobby shows names plus an estimated length.
 
-| Preset | Grid | Boxes | Lines | Est. length |
-|---|---|---|---|---|
-| Small | 6×6 | 36 | 84 | ~8 min |
-| Medium | 8×8 | 64 | 144 | ~14 min |
-| Large | 10×10 | 100 | 220 | ~22 min |
-| Grand | 12×12 | 144 | 312 | ~31 min |
+| Preset | Grid | Boxes | Lines | Est. length | Burns down to |
+|---|---|---|---|---|---|
+| Small | 8×8 | 64 | 144 | ~14 min | 6×6, one ring |
+| Medium | 10×10 | 100 | 220 | ~22 min | 6×6, two rings |
+| Large | 12×12 | 144 | 312 | ~31 min | 6×6, three rings |
+| Grand | 14×14 | 196 | 420 | ~42 min | 6×6, four rings |
 
-`gridSizeFor(players)` supplies the default when the host hasn't chosen: **Medium** up to 6
-players, **Large** at 7–8. It must always return a value that *is* a preset, or the lobby
-shows no chip selected and looks broken — there's a test for that.
+**Every size starts at 8** (revised 2026-08-02). The shrinking board stops once the short
+side would drop below `SHRINK_FLOOR_SQUARES` (6), so a 6×6 board could never burn a single
+ring — Twist on it was indistinguishable from Simple. Starting at 8 makes every board
+converge on the same 6×6 core, and the default game is unchanged: what used to be Medium
+and Large are now Small and Medium.
+
+**Grand needs `GRAND_MIN_PLAYERS` (4) to be selectable.** 420 moves is two people
+alternating for the better part of an hour otherwise. The lobby greys the chip and says
+why; the server enforces it on `configure` *and* re-checks at start, because a lobby can
+pick Grand with four people and then two of them leave.
+
+`gridSizeFor(players)` supplies the default when the host hasn't chosen: **Small** up to 6
+players, **Medium** at 7–8. It never returns Grand — that has to be chosen on purpose. It
+must always return a value that *is* a preset, or the lobby shows no chip selected and
+looks broken — there's a test for that.
 
 Length is `2n(n+1)` moves at ~6s each; it grows quadratically, which is why Grand is nearly
 four times Small.
@@ -484,8 +527,14 @@ predictable. Benched players are skipped but keep their slot.
   - Boxes in the ring **unclaimed** → destroyed. Worth nothing to anyone.
   - Lines belonging only to the ring are removed. The board visually contracts and
     re-centres over ~500ms with a `whoosh`.
-- The game ends when the current playable area is fully claimed, **or** when the board
-  shrinks below 2×2 — whichever comes first. Sudden death guarantees termination.
+- **The board stops burning at a 6-square short side** (`SHRINK_FLOOR_SQUARES`, revised
+  2026-08-02). A ring collapsing into a 4×4 sliver is neither readable nor worth playing
+  out, and the burn needs a decent ring to look like anything. Consequence: a Twist game no
+  longer ends by the board eating itself — it ends the ordinary way, when the surviving core
+  is fully claimed. That still terminates, because every move places a line and lines run
+  out. `canCollapse(state)` is the single source of this rule: it gates arming, the
+  countdown, and the collapse itself, so the UI never counts down to a collapse that cannot
+  happen.
 
 This is the pressure valve for large lobbies: it punishes hoarding safe edge boxes and
 forces the fight into the centre.
@@ -497,6 +546,12 @@ too swingy, and it made every claimed box feel provisional.)*
 
 - **Cost: 10 points. Effect: place one extra line this turn.**
 - Buy only on your own turn, before placing. Requires score ≥ 10.
+- **The price is shown before it is paid** (added 2026-08-02). Whenever you could buy one
+  right now — your turn, twist, affordable, not already holding the maximum — the ten
+  squares it would cost are outlined on the board in the metal they would become. Ten
+  squares silently turning grey looks arbitrary unless you already know the rule; showing
+  which ten makes the rule explain itself. `wildcardCostPreview()` is what the board draws
+  **and** what `buyWildcard` spends, so the two cannot disagree — there is a test for that.
 - **Spending burns 10 of your claimed boxes** — chosen furthest-from-centre first. They go
   dark grey on the board, count for nobody, and crumble to dust (rather than fly) in the
   endgame. This keeps `score === boxes you visibly own` true at all times, which the entire
@@ -650,7 +705,20 @@ for deuteranopia separation):
   outer glow at 35% alpha.
 - **Claimed box:** player colour at 16% fill, 1px inset border at 40%, initial centred at
   70% opacity in a heavy geometric face.
-- **Spent (burned) box:** `#2A3040` flat, no glow, initial removed.
+- **Two dead tiles, drawn differently on purpose** (revised 2026-08-02). They mean opposite
+  things, and drawing both as grey made a trade look like damage:
+  - **Burned by the fire (`DEAD`)** — ash: `rgba(15,19,28,.94)` with a `rgba(35,42,59,.85)`
+    edge, no glow, and **the owner's letter stays** in `--dim` at 0.56. The point was banked
+    the moment the square closed, so burning takes the tile and not the score — players must
+    still be able to count what they won. Collapsed tiles stay exactly where they were; the
+    board never moves.
+  - **Spent on a Wildcard (`SPENT`)** — metal (`SPENT_TILE`): a cool gradient lit from above
+    with a bright top bevel ash never has, and **no letter at all**, because it was paid
+    away and counts for nobody. A letter there would claim a point that is gone.
+
+  `GameState.formerOwner` records the prior owner for both, because `boxes[id]` is
+  overwritten in each case and the owner would otherwise be gone by the time the renderer
+  runs.
 - **Elevation:** soft shadows only, never hard. `0 8px 32px rgba(0,0,0,0.5)`.
 - **Type:** one variable font. Tabular numerals on the scoreboard (non-negotiable — the
   count-up animation jitters otherwise).
@@ -810,10 +878,28 @@ public). Duck to 4 concurrent voices max.
       - [x] Initials derived from names, with collision fallback (2026-07-31)
       - [x] Name remembered on the device, with a change option (2026-07-31)
       - [x] Owner device always hosts, via a Worker secret (2026-07-31)
+      - [x] Archivo self-hosted, full colour token pass, warm lamp + grain (2026-08-02)
+      - [x] Renamed to **Tiki**, with the dotted-i logo mark that assembles on load (2026-08-02)
+      - [x] Board painting values from the design pass — dot/line/square fractions,
+            finger-lit ghost, ash tiles, dead dots that stay put (2026-08-02)
+      - [x] Board presets 8/10/12/14, Grand gated on 4 players, shrink floor at 6 (2026-08-02)
+      - [x] Landing without a name field, Settings screen, no ready button,
+            YOU tags, grow-together initials (2026-08-02)
       - [ ] Audio: tick, click, thunk, whoosh, clack, blip, fanfare
       - [ ] Play button with the hinged lid + screen shake
       - [ ] Carpet-in dot animation
       - [ ] Visual token pass across every screen
+- [ ] **M6 remainder — in this order:**
+      1. **Playtest what exists.** It has not been played since the visual pass. Tap accuracy
+         on the bigger boards, whether Small at ~14 min is right, whether the grown initials
+         read, whether the Twist floor makes the endgame better or duller.
+      2. **Audio.** Six sounds, hand-rolled Web Audio, no library. Highest-value gap, and it
+         depends on nothing else.
+      3. **The Twist burn** (handover §6, and a fresh `Copy values` from `tiki-board.html`).
+         Warning phase, ignition spreading both ways around the ring, flame particles,
+         vignette, rounds-left dashes. The tiles already know how to look burned; what is
+         missing is the transition.
+      4. **Start sequence** (`box-start-sequence.html` holds the timings).
 - [ ] **M7 — Endgame sequence.** Crack, flight, clacks, count-up, victory.
 - [ ] **M8 — PWA + ship.** Manifest, service worker, icons, offline shell, custom domain.
       **Playtest with 6 real people.**
@@ -825,7 +911,6 @@ means debugging game logic and network logic simultaneously, which is miserable.
 
 ## 16. Open questions
 
-1. **Name.** "BOX" is a placeholder.
 2. **Room code length** — 4 chars is friendlier to type; collision risk is fine at this
    scale with retry-on-collision. Confirm at M3.
 3. **Wildcard price** (§9.3) — 10 is deliberately steep and probably right, but it's a
@@ -837,6 +922,8 @@ means debugging game logic and network logic simultaneously, which is miserable.
 
 ### Resolved
 
+- ~~Name~~ → **Tiki**, title case, because the mark depends on a dotted lowercase i. (§1 of
+  the design handover.)
 - ~~Shop items~~ → **Wildcard only, 10 pts, one extra line.** Eraser cut as too swingy. (§9.3)
 - ~~5s shot clock~~ → **12s normal, 6s continuation**, warning at 4s remaining. (§6.2, §12.2)
 - ~~iOS has no vibration~~ → **acceptable; small non-intrusive pill above the board.** (§12.2)

@@ -9,6 +9,8 @@
 
 import {
   gridSizeFor,
+  MAX_WILDCARD_CHARGES,
+  WILDCARD_COST,
   MAX_PLAYERS,
   MIN_PLAYERS,
   PLAYER_COLORS,
@@ -21,6 +23,8 @@ import {
   currentPlayer,
   isShrinkWarning,
   ringBoxes,
+  wildcardCostPreview,
+  type GameState,
   skipTurn,
   turnSecondsFor,
   type Mode,
@@ -35,6 +39,7 @@ import {
 import { CONFIRM_TAP_FROM_GRID } from "../render/layout.ts";
 import { createStage, type Stage } from "../render/stage.ts";
 import { createScoreboard, type Scoreboard } from "./scoreboard.ts";
+import { wordmark } from "./wordmark.ts";
 
 const INITIALS = "ABCDEFGH";
 const CLOCK_TICK_MS = 50;
@@ -60,7 +65,7 @@ function renderSetup(root: HTMLElement, setActive: SetActive) {
   setActive(null);
   root.innerHTML = `
     <main class="setup">
-      <h1>BOX</h1>
+      <h1>${wordmark()}</h1>
       <p class="tag">hot seat &middot; one device</p>
 
       <section>
@@ -179,6 +184,7 @@ function startGame(
     ghost: null,
     ghostColor: players[0]!.color,
     doomed: [],
+    costPreview: [],
   };
 
   function syncView() {
@@ -186,6 +192,8 @@ function startGame(
     view.ghost = ghost;
     view.ghostColor = players[currentPlayer(state)]?.color ?? players[0]!.color;
     view.doomed = isShrinkWarning(state) ? ringBoxes(state) : [];
+    // One device, so the price shown is always the player whose turn it is.
+    view.costPreview = costPreviewFor(state, currentPlayer(state));
   }
 
   const stage: Stage = createStage(
@@ -353,4 +361,17 @@ function startGame(
   beginTurn();
   refreshScoreboard(performance.now());
   stage.requestFrame();
+}
+
+/**
+ * The Wildcard price, shown only while it is actually payable: your turn, in
+ * twist, affordable, and you are not already holding the maximum. Outside that
+ * it is noise on a board people are trying to read.
+ */
+function costPreviewFor(s: GameState, playerIndex: number): number[] {
+  if (s.mode !== "twist" || s.phase !== "playing") return [];
+  if (playerIndex < 0 || playerIndex !== currentPlayer(s)) return [];
+  if (s.charges[playerIndex] >= MAX_WILDCARD_CHARGES) return [];
+  if (s.scores[playerIndex] < WILDCARD_COST) return [];
+  return wildcardCostPreview(s, playerIndex);
 }

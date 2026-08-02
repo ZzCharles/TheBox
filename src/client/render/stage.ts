@@ -113,5 +113,10 @@ export function createStage(
   observer.observe(host);
   resize();
 
+  // Canvas text does not reflow when a webfont arrives — whatever was painted
+  // in the fallback face stays painted. One repaint once Archivo is ready.
+  // `requestFrame` is a no-op after destroy, so a late resolve is harmless.
+  document.fonts?.ready.then(() => stage.requestFrame());
+
   return stage;
 }

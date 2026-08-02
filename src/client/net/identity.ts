@@ -6,6 +6,13 @@
 const CLIENT_ID_KEY = "box.clientId";
 const NAME_KEY = "box.name";
 const OWNER_KEY = "box.ownerKey";
+const PREFS_KEY = "box.prefs";
+
+/*
+ * The `box.` prefix outlives the rename to Tiki on purpose: changing it would
+ * silently forget the name and seat of everyone already carrying one, which is
+ * the exact friction the remembered name exists to remove.
+ */
 
 export function clientId(): string {
   let id = localStorage.getItem(CLIENT_ID_KEY);
@@ -60,4 +67,78 @@ export function rememberOwnerKey(key: string): void {
   const trimmed = key.trim();
   if (trimmed) localStorage.setItem(OWNER_KEY, trimmed);
   else localStorage.removeItem(OWNER_KEY);
+}
+
+// ------------------------------------------------------------ preferences ---
+
+export interface Prefs {
+  /**
+   * Preferred player colour, as an index into `PLAYER_COLORS`. Granted if it is
+   * free when you join and quietly swapped for the next open one if not — no
+   * prompt, no error. -1 means no preference.
+   */
+  colour: number;
+  sound: boolean;
+  vibrate: boolean;
+  /** A manual override, on top of the OS-level `prefers-reduced-motion`. */
+  reduceMotion: boolean;
+  leftHanded: boolean;
+}
+
+export const DEFAULT_PREFS: Prefs = {
+  colour: -1,
+  sound: true,
+  vibrate: true,
+  reduceMotion: false,
+  leftHanded: false,
+};
+
+export function prefs(): Prefs {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return { ...DEFAULT_PREFS };
+    // Spread over the defaults so a preference added later doesn't come back
+    // undefined for anyone who already has a stored blob.
+    return { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<Prefs>) };
+  } catch {
+    return { ...DEFAULT_PREFS };
+  }
+}
+
+export function savePrefs(next: Partial<Prefs>): Prefs {
+  const merged = { ...prefs(), ...next };
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(merged));
+  } catch {
+    /* a full or blocked store is not worth breaking the game over */
+  }
+  applyPrefs(merged);
+  return merged;
+}
+
+/**
+ * Push the preferences that affect presentation onto the document, so CSS can
+ * act on them. Called at boot and after every change.
+ */
+export function applyPrefs(p: Prefs = prefs()): void {
+  const root = document.documentElement;
+  root.classList.toggle("reduce-motion", p.reduceMotion);
+  root.classList.toggle("left-handed", p.leftHanded);
+}
+
+/** A short buzz, where the device has one. Absent on iOS Safari — feature-detect. */
+export function buzz(ms = 40): void {
+  if (!prefs().vibrate) return;
+  navigator.vibrate?.(ms);
+}
+
+export function canVibrate(): boolean {
+  return typeof navigator.vibrate === "function";
+}
+
+/** Everything this device remembers. Used by "forget this device" in Settings. */
+export function forgetDevice(): void {
+  for (const key of [CLIENT_ID_KEY, NAME_KEY, OWNER_KEY, PREFS_KEY]) {
+    localStorage.removeItem(key);
+  }
 }

@@ -5,15 +5,23 @@
  * that is ~450 primitives, which Canvas 2D eats for breakfast, and combined
  * with the stage's on-demand loop it costs nothing while idle.
  *
- * Two things keep it fast on mid-range phones:
- *   - dots are prerendered once into a sprite and blitted, instead of building
- *     a radial gradient per dot per frame;
- *   - lines and box fills are batched into ONE path per player, so `shadowBlur`
- *     is set ~8 times a frame instead of ~450.
+ * Two things keep it fast on mid-range phones, and both are load-bearing at
+ * Grand size:
+ *   - every dot appearance is prerendered once into a sprite and blitted,
+ *     instead of building a radial gradient per dot per frame;
+ *   - lines are batched into ONE path per player and stroked twice, halo then
+ *     core, so the stroke count is ~16 a frame instead of ~450.
  */
 
 import { boxCol, boxRow } from "../../shared/board.ts";
-import { COLOR_DOT, COLOR_DOT_GLOW, COLOR_SPENT } from "../../shared/constants.ts";
+import {
+  COLOR_DEAD,
+  COLOR_DIM,
+  COLOR_DOT,
+  COLOR_GLOW,
+  FIRE,
+  SPENT_TILE,
+} from "../../shared/constants.ts";
 import { DEAD, SPENT, UNCLAIMED, type GameState } from "../../shared/rules.ts";
 import {
   boxRect,
@@ -23,12 +31,70 @@ import {
   lineSegment,
   type Layout,
 } from "./layout.ts";
-import { Animator, easeOutCubic, easeOutQuint, pulse } from "./tween.ts";
+import { Animator, easeOutCubic } from "./tween.ts";
 
-export const LINE_DRAW_MS = 140;
-export const BOX_CLAIM_MS = 260;
+/**
+ * Board painting values, tuned in `design/tiki-board.html`.
+ *
+ * Every size here is a FRACTION OF THE DOT GAP, never a pixel. That is the
+ * whole trick behind a 12x12 board working on a phone: at a ~28px gap any fixed
+ * pixel value turns the board into a solid mesh, while as fractions a Grand
+ * board simply looks like a Small board seen from further away.
+ */
+const PAINT = {
+  dot: {
+    radius: 0.084,
+    /** The one pixel floor in here — below this a dot stops reading as a dot. */
+    minPx: 2,
+    glow: 3.4,
+    deadScale: 0.72,
+    litScale: 1.28,
+    litGlow: 1.2,
+  },
+  line: {
+    width: 0.076,
+    halo: 2.4,
+    haloAlpha: 0.26,
+    coreAlpha: 0.95,
+    ghostAlpha: 0.28,
+  },
+  box: {
+    inset: 0.125,
+    radius: 0.095,
+    fillTop: 0.237,
+    fillBottom: 0.133,
+    edgeAlpha: 0.53,
+    /*
+     * By label length. Most players get one letter, but a room of Sarahs and
+     * Smiths grows them to two or three, and a three-letter label set at the
+     * one-letter size runs straight out of its box.
+     */
+    initialByLength: [0.45, 0.32, 0.25],
+    initialAlpha: 0.88,
+    /** Letters sit high in their box optically; nudge them back down. */
+    opticalNudge: 0.015,
+  },
+  ash: {
+    /** Grey and quiet: still countable, never mistaken for a live square. */
+    initialAlpha: 0.56,
+  },
+  doomed: {
+    periodMs: 1200,
+    base: 0.55,
+    swing: 0.45,
+  },
+} as const;
+
+/** Claim pulse: grow to 1.06 by this point, then settle back to 1. */
+const CLAIM_PEAK = 0.42;
+/** The initial only starts fading in once the square has mostly arrived. */
+const CLAIM_INITIAL_FROM = 0.45;
+
+export const LINE_DRAW_MS = 240;
+export const BOX_CLAIM_MS = 160;
 
 const MAX_DPR = 2;
+const TAU = Math.PI * 2;
 
 export interface PlayerView {
   name: string;
@@ -44,10 +110,17 @@ export interface BoardView {
   /** Colour for the ghost — the current player's. */
   ghostColor: string;
   /**
-   * Boxes about to be destroyed by the shrinking board. They pulse red for a
-   * full rotation before collapsing; empty when no collapse is pending.
+   * Boxes about to be destroyed by the shrinking board. Their dots cool to
+   * ember and breathe for a full rotation before collapsing; empty when no
+   * collapse is pending.
    */
   doomed: number[];
+  /**
+   * The squares a Wildcard would cost you right now, outlined in the metal they
+   * would become. Empty unless you could actually buy one this instant — the
+   * price is only worth showing while it is payable.
+   */
+  costPreview: number[];
 }
 
 export interface BoardRenderer {
@@ -67,53 +140,58 @@ export function createBoardRenderer(
 ): BoardRenderer {
   const anim = new Animator();
   let layout = computeLayout(n, width, height);
-  let dotSprite = makeDotSprite(layout);
+  let dots = makeDotSprites(layout);
   let viewW = width;
   let viewH = height;
+  /** Last font handed to the context, so identical sets are skipped. */
+  let lastFont = "";
 
   /**
-   * Only the dots bordering live boxes are drawn, so the board visibly
-   * contracts as the shrinking board eats the outer rings.
+   * Dead things don't glow — everything alive on this board emits light, so the
+   * absence of it is how death reads. A dot outside the live area shrinks and
+   * goes flat, and it stays exactly where it always was: the board never moves,
+   * which is what lets players keep counting their squares after a collapse.
    */
-  function drawDots(ctx: CanvasRenderingContext2D, { state }: BoardView) {
-    const half = dotSprite.cssSize / 2;
-    const { r0, c0, r1, c1 } = state.bounds;
-    if (r0 > r1 || c0 > c1) return;
+  function drawDots(ctx: CanvasRenderingContext2D, now: number, view: BoardView) {
+    const { r0, c0, r1, c1 } = view.state.bounds;
+    const hasLiveArea = r0 <= r1 && c0 <= c1;
+    const ringDoomed = view.doomed.length > 0;
+    const beat = 0.5 + 0.5 * Math.sin((now * TAU) / PAINT.doomed.periodMs);
+    const doomedAlpha = PAINT.doomed.base + PAINT.doomed.swing * beat;
 
-    for (let r = r0; r <= r1 + 1; r++) {
-      for (let c = c0; c <= c1 + 1; c++) {
-        ctx.drawImage(
-          dotSprite.canvas,
-          dotX(layout, c) - half,
-          dotY(layout, r) - half,
-          dotSprite.cssSize,
-          dotSprite.cssSize,
-        );
+    for (let r = 0; r <= layout.n; r++) {
+      for (let c = 0; c <= layout.n; c++) {
+        const x = dotX(layout, c);
+        const y = dotY(layout, r);
+        const inside =
+          hasLiveArea && r >= r0 && r <= r1 + 1 && c >= c0 && c <= c1 + 1;
+
+        if (!inside) {
+          blit(ctx, dots.dead, x, y);
+          continue;
+        }
+        const onRing =
+          ringDoomed && (r === r0 || r === r1 + 1 || c === c0 || c === c1 + 1);
+        if (onRing) {
+          ctx.globalAlpha = doomedAlpha;
+          blit(ctx, dots.doomed, x, y);
+          ctx.globalAlpha = 1;
+        } else {
+          blit(ctx, dots.live, x, y);
+        }
       }
     }
-  }
 
-  /** Red pulse over the ring that is one rotation from collapsing. */
-  function drawDoomed(ctx: CanvasRenderingContext2D, now: number, view: BoardView) {
-    if (view.doomed.length === 0) return;
-    const beat = 0.5 + 0.5 * Math.sin(now / 260);
-
-    ctx.save();
-    ctx.fillStyle = "#F87171";
-    ctx.strokeStyle = "#F87171";
-    ctx.lineWidth = 1;
-    for (const box of view.doomed) {
-      const { x, y, w, h } = boxRect(
-        layout,
-        boxRow(layout.n, box),
-        boxCol(layout.n, box),
-      );
-      ctx.globalAlpha = 0.1 + 0.22 * beat;
-      ctx.fillRect(x, y, w, h);
-      ctx.globalAlpha = 0.25 + 0.45 * beat;
-      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    /*
+     * The finger-lit pair. This matters more than anything else on the board:
+     * when a thumb covers a quarter of it, the two white dots are what resolve
+     * WHICH two dots you are about to connect.
+     */
+    if (view.ghost !== null) {
+      const { x0, y0, x1, y1 } = lineSegment(layout, view.ghost);
+      blit(ctx, dots.lit, x0, y0);
+      blit(ctx, dots.lit, x1, y1);
     }
-    ctx.restore();
   }
 
   function drawBoxes(
@@ -121,79 +199,183 @@ export function createBoardRenderer(
     now: number,
     { state, players }: BoardView,
   ) {
-    const fills: Array<Path2D | null> = new Array(players.length).fill(null);
-    let spentPath: Path2D | null = null;
+    const cell = layout.cell;
+    const inset = cell * PAINT.box.inset;
+    const size = cell - inset * 2;
+    const radius = cell * PAINT.box.radius;
+
+    // One gradient per player, reused across their squares by translating the
+    // context — a gradient is defined in canvas space, so the alternative is
+    // building one per square per frame.
+    const gradients = players.map((p) => {
+      const g = ctx.createLinearGradient(0, 0, 0, cell);
+      g.addColorStop(0, withAlpha(p.color, PAINT.box.fillTop));
+      g.addColorStop(1, withAlpha(p.color, PAINT.box.fillBottom));
+      return g;
+    });
+
+    const owned: number[][] = players.map(() => []);
+    /* Taken by the fire. Stays exactly where it was — the board never moves. */
+    const ash: number[] = [];
+    /* Traded for a Wildcard. Reads as metal, not damage. */
+    const spent: number[] = [];
     const pulsing: number[] = [];
 
     for (let box = 0; box < state.boxes.length; box++) {
       const owner = state.boxes[box];
-      if (owner === UNCLAIMED || owner === DEAD) continue;
-
+      if (owner === UNCLAIMED) continue;
       if (anim.has(`box:${box}`)) {
         pulsing.push(box);
         continue;
       }
+      if (owner === DEAD) ash.push(box);
+      else if (owner === SPENT) spent.push(box);
+      else owned[owner]!.push(box);
+    }
 
-      const { x, y, w, h } = boxRect(layout, boxRow(layout.n, box), boxCol(layout.n, box));
-      if (owner === SPENT) {
-        spentPath ??= new Path2D();
-        spentPath.rect(x, y, w, h);
-      } else {
-        let path = fills[owner];
-        if (!path) fills[owner] = path = new Path2D();
-        path.rect(x, y, w, h);
+    const tile = (box: number) => {
+      const { x, y } = boxRect(layout, boxRow(layout.n, box), boxCol(layout.n, box));
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.beginPath();
+      ctx.roundRect(inset, inset, size, size, radius);
+    };
+
+    // Ash: a shallow recess, darker than the table, with no light of its own.
+    ctx.lineWidth = 1;
+    for (const box of ash) {
+      tile(box);
+      ctx.fillStyle = FIRE.ashFill;
+      ctx.fill();
+      ctx.strokeStyle = FIRE.ashEdge;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    /*
+     * Spent: a machined block. Lit from above like the primary button, with a
+     * bright top bevel ash never has, so a trade never reads as fire damage.
+     */
+    if (spent.length > 0) {
+      const metal = ctx.createLinearGradient(0, 0, 0, cell);
+      metal.addColorStop(0, SPENT_TILE.top);
+      metal.addColorStop(1, SPENT_TILE.bottom);
+      for (const box of spent) {
+        tile(box);
+        ctx.fillStyle = metal;
+        ctx.fill();
+        ctx.strokeStyle = SPENT_TILE.edge;
+        ctx.stroke();
+        // The sheen: one bright pass along the top inner edge only.
+        ctx.save();
+        ctx.clip();
+        ctx.strokeStyle = SPENT_TILE.sheen;
+        ctx.beginPath();
+        ctx.moveTo(inset + radius, inset + 1);
+        ctx.lineTo(inset + size - radius, inset + 1);
+        ctx.stroke();
+        ctx.restore();
+        ctx.restore();
       }
     }
 
-    // Burned boxes: flat, dead, no glow. They should read as absent.
-    if (spentPath) {
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = COLOR_SPENT;
-      ctx.fill(spentPath);
+    ctx.lineWidth = 1;
+    for (let p = 0; p < owned.length; p++) {
+      const boxes = owned[p]!;
+      if (boxes.length === 0) continue;
+      const color = players[p]!.color;
+      for (const box of boxes) {
+        tile(box);
+        ctx.fillStyle = gradients[p]!;
+        ctx.fill();
+        ctx.strokeStyle = withAlpha(color, PAINT.box.edgeAlpha);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
-    for (let p = 0; p < fills.length; p++) {
-      const path = fills[p];
-      if (!path) continue;
-      ctx.globalAlpha = 0.16;
-      ctx.fillStyle = players[p]!.color;
-      ctx.fill(path);
-    }
-    ctx.globalAlpha = 1;
-
-    // Initials, drawn after all fills so the font is set once.
+    // Initials after all fills, so the font is set as few times as possible.
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = `700 ${Math.round(layout.cell * 0.42)}px ui-sans-serif, system-ui, sans-serif`;
     for (let box = 0; box < state.boxes.length; box++) {
       const owner = state.boxes[box];
-      if (owner < 0 || anim.has(`box:${box}`)) continue;
-      drawInitial(ctx, box, owner, players, 1);
+      if (owner === UNCLAIMED || anim.has(`box:${box}`)) continue;
+
+      /*
+       * ASH keeps its letter; SPENT does not. Opposite meanings: a square the
+       * fire took still counts for its owner, so it stays countable in grey. A
+       * square spent on a Wildcard was paid away and counts for nobody — a
+       * letter there would claim a point that is gone.
+       */
+      if (owner === SPENT) continue;
+      if (owner === DEAD) {
+        const was = state.formerOwner[box] ?? -1;
+        const player = players[was];
+        if (player) {
+          drawInitial(ctx, box, player.initial, COLOR_DIM, PAINT.ash.initialAlpha);
+        }
+        continue;
+      }
+      drawInitial(
+        ctx,
+        box,
+        players[owner]!.initial,
+        players[owner]!.color,
+        PAINT.box.initialAlpha,
+      );
     }
 
-    // Pulsing boxes scale about their centre, so each needs its own transform.
+    /*
+     * Pulsing squares scale about their own centre, so each needs its own
+     * transform and can't join a batch. There are never many at once — a single
+     * line claims at most two.
+     */
     for (const box of pulsing) {
       const owner = state.boxes[box];
       const t = anim.rawValue(`box:${box}`, now);
-      const scale = 0.85 + 0.21 * easeOutQuint(t) + 0.06 * pulse(t);
+      const grown = t < CLAIM_PEAK;
+      const scale = grown
+        ? 0.85 + 0.21 * (t / CLAIM_PEAK)
+        : 1.06 - 0.06 * easeOutCubic((t - CLAIM_PEAK) / (1 - CLAIM_PEAK));
+      const fade = grown ? t / CLAIM_PEAK : 1;
       const { x, y, w, h } = boxRect(layout, boxRow(layout.n, box), boxCol(layout.n, box));
+      const cx = x + w / 2;
+      const cy = y + h / 2;
 
       ctx.save();
-      ctx.translate(x + w / 2, y + h / 2);
+      ctx.translate(cx, cy);
       ctx.scale(scale, scale);
-      ctx.translate(-(x + w / 2), -(y + h / 2));
+      ctx.translate(-cx, -cy);
 
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.beginPath();
+      ctx.roundRect(inset, inset, size, size, radius);
+      ctx.globalAlpha = fade;
       if (owner === SPENT) {
-        ctx.fillStyle = COLOR_SPENT;
-        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = FIRE.ashFill;
+        ctx.fill();
+        ctx.strokeStyle = FIRE.ashEdge;
       } else {
         const color = players[owner]!.color;
-        ctx.globalAlpha = 0.16 + 0.34 * pulse(t);
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y, w, h);
-        ctx.globalAlpha = 1;
-        // The initial fades in over the back half of the pulse.
-        drawInitial(ctx, box, owner, players, Math.max(0, (t - 0.4) / 0.6));
+        ctx.fillStyle = withAlpha(color, PAINT.box.fillTop);
+        ctx.fill();
+        ctx.strokeStyle = withAlpha(color, PAINT.box.edgeAlpha);
+      }
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+
+      if (owner !== SPENT) {
+        const p = (t - CLAIM_INITIAL_FROM) / (1 - CLAIM_INITIAL_FROM);
+        const player = players[owner]!;
+        drawInitial(
+          ctx,
+          box,
+          player.initial,
+          player.color,
+          PAINT.box.initialAlpha * Math.min(1, Math.max(0, p)),
+        );
       }
       ctx.restore();
     }
@@ -203,20 +385,34 @@ export function createBoardRenderer(
   function drawInitial(
     ctx: CanvasRenderingContext2D,
     box: number,
-    owner: number,
-    players: PlayerView[],
+    label: string,
+    color: string,
     alpha: number,
   ) {
     if (alpha <= 0) return;
-    const player = players[owner];
-    if (!player) return;
     const { x, y, w, h } = boxRect(layout, boxRow(layout.n, box), boxCol(layout.n, box));
-    ctx.globalAlpha = 0.7 * alpha;
-    ctx.fillStyle = player.color;
-    ctx.fillText(player.initial, x + w / 2, y + h / 2 + layout.cell * 0.02);
+
+    // Parsing a font string is not free, so only touch it when it changes —
+    // in practice once or twice for a whole board.
+    const font = initialFont(layout.cell, label.length);
+    if (font !== lastFont) {
+      ctx.font = font;
+      lastFont = font;
+    }
+
+    // `alpha` is the FINAL opacity, not a multiplier — live letters and ash
+    // letters have different targets and each caller states its own.
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.fillText(label, x + w / 2, y + h / 2 + layout.cell * PAINT.box.opticalNudge);
     ctx.globalAlpha = 1;
   }
 
+  /**
+   * Lines run dot centre to dot centre and are painted UNDER the dots, so each
+   * dot sits on top like a rivet: squares close cleanly and the dots still read
+   * as separate objects.
+   */
   function drawLines(
     ctx: CanvasRenderingContext2D,
     now: number,
@@ -239,23 +435,45 @@ export function createBoardRenderer(
     }
 
     ctx.lineCap = "round";
-    ctx.lineWidth = layout.lineWidth;
     for (let p = 0; p < paths.length; p++) {
       const path = paths[p];
       if (!path) continue;
-      const color = players[p]!.color;
-      ctx.strokeStyle = color;
-      ctx.shadowColor = color;
-      ctx.shadowBlur = layout.lineWidth * 2.2;
-      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = players[p]!.color;
+      ctx.lineWidth = layout.lineWidth * PAINT.line.halo;
+      ctx.globalAlpha = PAINT.line.haloAlpha;
       ctx.stroke(path);
-      // Second pass at full opacity, no shadow: crisp core over a soft glow.
-      ctx.shadowBlur = 0;
-      ctx.globalAlpha = 1;
+      ctx.lineWidth = layout.lineWidth;
+      ctx.globalAlpha = PAINT.line.coreAlpha;
       ctx.stroke(path);
     }
     ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
+  }
+
+  /**
+   * The price of a Wildcard, before you pay it. Ten squares silently turning
+   * grey looks arbitrary; showing which ten makes the rule explain itself.
+   */
+  function drawCostPreview(ctx: CanvasRenderingContext2D, view: BoardView) {
+    if (view.costPreview.length === 0) return;
+    const cell = layout.cell;
+    const inset = cell * PAINT.box.inset;
+    const size = cell - inset * 2;
+    const radius = cell * PAINT.box.radius;
+
+    ctx.save();
+    ctx.strokeStyle = SPENT_TILE.edge;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([cell * 0.08, cell * 0.06]);
+    for (const box of view.costPreview) {
+      const { x, y } = boxRect(layout, boxRow(layout.n, box), boxCol(layout.n, box));
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.beginPath();
+      ctx.roundRect(inset, inset, size, size, radius);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   function drawGhost(ctx: CanvasRenderingContext2D, view: BoardView) {
@@ -265,8 +483,7 @@ export function createBoardRenderer(
     ctx.lineCap = "round";
     ctx.lineWidth = layout.lineWidth;
     ctx.strokeStyle = view.ghostColor;
-    ctx.globalAlpha = 0.4;
-    ctx.setLineDash([layout.cell * 0.12, layout.cell * 0.1]);
+    ctx.globalAlpha = PAINT.line.ghostAlpha;
     ctx.beginPath();
     ctx.moveTo(x0, y0);
     ctx.lineTo(x1, y1);
@@ -283,7 +500,7 @@ export function createBoardRenderer(
       viewW = w;
       viewH = h;
       layout = computeLayout(nextN, w, h);
-      dotSprite = makeDotSprite(layout);
+      dots = makeDotSprites(layout);
     },
 
     animateLine(lineId, now) {
@@ -303,29 +520,61 @@ export function createBoardRenderer(
       ctx.clearRect(0, 0, viewW, viewH);
 
       drawBoxes(ctx, now, view);
-      drawDoomed(ctx, now, view);
+      drawCostPreview(ctx, view);
       drawLines(ctx, now, view);
       drawGhost(ctx, view);
-      drawDots(ctx, view);
+      drawDots(ctx, now, view);
 
-      // The doomed pulse is time-driven rather than tween-driven, so it has to
+      // The doomed breath is time-driven rather than tween-driven, so it has to
       // keep asking for frames on its own.
       return anim.update(now) || view.doomed.length > 0;
     },
   };
 }
 
-/**
- * Prerender one dot — core plus glow — so the hot loop is `drawImage` rather
- * than a fresh radial gradient per dot per frame.
- */
-function makeDotSprite(layout: Layout): {
+// --------------------------------------------------------------- sprites ---
+
+interface Sprite {
   canvas: HTMLCanvasElement;
   cssSize: number;
-} {
+}
+
+interface DotSprites {
+  live: Sprite;
+  dead: Sprite;
+  doomed: Sprite;
+  lit: Sprite;
+}
+
+function makeDotSprites(layout: Layout): DotSprites {
+  const r = layout.dotRadius;
+  return {
+    live: makeDot(r, COLOR_DOT, rgbOf(COLOR_GLOW), PAINT.dot.glow),
+    doomed: makeDot(r, FIRE.doomedDot, "255,80,40", PAINT.dot.glow),
+    dead: makeDot(r * PAINT.dot.deadScale, COLOR_DEAD, null, 0),
+    lit: makeDot(
+      r * PAINT.dot.litScale,
+      "#FFFFFF",
+      "255,255,255",
+      PAINT.dot.glow * PAINT.dot.litGlow,
+    ),
+  };
+}
+
+/**
+ * Prerender one dot appearance — core plus glow — so the hot loop is
+ * `drawImage`. Building a radial gradient per dot per frame will not hold 60fps
+ * across the 169 dots of a Grand board.
+ */
+function makeDot(
+  radius: number,
+  core: string,
+  glowRGB: string | null,
+  glowScale: number,
+): Sprite {
   const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
-  const glow = layout.dotRadius * 2.6;
-  const cssSize = Math.ceil((layout.dotRadius + glow) * 2);
+  const extent = glowRGB === null ? radius : radius * glowScale;
+  const cssSize = Math.max(1, Math.ceil(extent * 2));
 
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(cssSize * dpr);
@@ -335,17 +584,42 @@ function makeDotSprite(layout: Layout): {
   ctx.scale(dpr, dpr);
 
   const c = cssSize / 2;
-  const gradient = ctx.createRadialGradient(c, c, 0, c, c, cssSize / 2);
-  gradient.addColorStop(0, COLOR_DOT_GLOW);
-  gradient.addColorStop(0.28, `${COLOR_DOT_GLOW}55`);
-  gradient.addColorStop(1, `${COLOR_DOT_GLOW}00`);
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, cssSize, cssSize);
+  if (glowRGB !== null) {
+    const gradient = ctx.createRadialGradient(c, c, 0, c, c, extent);
+    gradient.addColorStop(0, `rgba(${glowRGB},0.55)`);
+    gradient.addColorStop(0.35, `rgba(${glowRGB},0.16)`);
+    gradient.addColorStop(1, `rgba(${glowRGB},0)`);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, cssSize, cssSize);
+  }
 
   ctx.beginPath();
-  ctx.arc(c, c, layout.dotRadius, 0, Math.PI * 2);
-  ctx.fillStyle = COLOR_DOT;
+  ctx.arc(c, c, radius, 0, TAU);
+  ctx.fillStyle = core;
   ctx.fill();
 
   return { canvas, cssSize };
+}
+
+function initialFont(cell: number, length: number): string {
+  const sizes = PAINT.box.initialByLength;
+  const scale = sizes[Math.min(Math.max(length, 1), sizes.length) - 1]!;
+  return `800 ${Math.round(cell * scale)}px "Archivo", ui-sans-serif, system-ui, sans-serif`;
+}
+
+function blit(ctx: CanvasRenderingContext2D, sprite: Sprite, x: number, y: number) {
+  const half = sprite.cssSize / 2;
+  ctx.drawImage(sprite.canvas, x - half, y - half, sprite.cssSize, sprite.cssSize);
+}
+
+// ----------------------------------------------------------------- colour ---
+
+/** `#RRGGBB` plus an alpha, for fills that need to be translucent. */
+function withAlpha(hex: string, alpha: number): string {
+  return `rgba(${rgbOf(hex)},${alpha})`;
+}
+
+function rgbOf(hex: string): string {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
 }

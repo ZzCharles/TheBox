@@ -57,8 +57,14 @@ export function computeLayout(
     cell,
     originX: (viewportWidth - extent) / 2,
     originY: (viewportHeight - extent) / 2,
-    dotRadius: Math.max(2.5, cell * 0.09),
-    lineWidth: Math.max(2.5, Math.min(4, cell * 0.11)),
+    /*
+     * Fractions of the gap, not pixels. A pixel value that looks right on a
+     * 6x6 board makes a 12x12 board a solid mesh; as fractions, Grand just
+     * looks like Small seen from further away. The 2px floor on the dot is the
+     * single exception — below that a dot stops reading as a dot at all.
+     */
+    dotRadius: Math.max(2, cell * 0.084),
+    lineWidth: cell * 0.076,
   };
 }
 

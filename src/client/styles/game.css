@@ -8,20 +8,18 @@
   width: min(100%, 26rem);
 }
 
+/* Weight, width, tracking and colour all belong to `.tiki` itself. */
 .setup h1 {
-  font-size: clamp(2.5rem, 15vw, 4rem);
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: var(--dot);
-  text-shadow: 0 0 32px rgb(255 176 32 / 35%);
+  font-size: clamp(2.75rem, 17vw, 5rem);
 }
 
+/* Section label. */
 .setup h2 {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.18em;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: #606a80;
   margin-bottom: 0.6rem;
 }
 
@@ -39,9 +37,9 @@
 .chip {
   min-width: 2.75rem;
   padding: 0.6rem 0.9rem;
-  border: 1px solid #2a3040;
+  border: 1px solid var(--edge);
   border-radius: 0.6rem;
-  background: var(--surface);
+  background: var(--panel);
   color: var(--text);
   font: inherit;
   font-weight: 600;
@@ -68,14 +66,19 @@
   padding: 0.9rem 2.5rem;
   border: 0;
   border-radius: 0.75rem;
-  background: var(--dot);
-  color: #1a1206;
+  /* Lit from above: a bright top edge, warm body, and light thrown downward. */
+  background: linear-gradient(#ffcf63, #f5a82a);
+  color: #22160a;
   font: inherit;
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 800;
-  letter-spacing: 0.06em;
+  letter-spacing: -0.005em;
+  /* Pinned, so `.waiting` can match it exactly. See the note there. */
+  line-height: 1.2;
   cursor: pointer;
-  box-shadow: 0 8px 28px rgb(255 176 32 / 28%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 10px 24px -12px rgb(255 176 32 / 70%);
   transition: transform 120ms ease;
 }
 
@@ -83,15 +86,18 @@
   transform: scale(0.97);
 }
 
+/* Body / notes. */
 .hint {
-  font-size: 0.8rem;
-  color: var(--text-dim);
+  font-size: 0.78125rem;
+  font-weight: 520;
+  line-height: 1.45;
+  color: var(--dim);
 }
 
 .linkish {
   border: 0;
   background: none;
-  color: var(--text-dim);
+  color: var(--dim);
   font: inherit;
   font-size: 0.8rem;
   text-decoration: underline;
@@ -105,19 +111,226 @@
   text-decoration: none;
 }
 
-.identity {
-  font-size: 0.95rem;
-  color: var(--text-dim);
+.hello {
+  font-size: 1.0625rem;
+  font-weight: 520;
+  letter-spacing: -0.01em;
+  color: var(--dim);
 }
 
-.identity strong {
+.hello b {
   color: var(--text);
   font-weight: 700;
 }
 
-.identity .linkish {
-  margin-left: 0.4rem;
-  font-size: 0.75rem;
+.gear {
+  position: fixed;
+  top: max(1rem, env(safe-area-inset-top));
+  right: 1rem;
+  z-index: 9;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--edge);
+  border-radius: 50%;
+  background: rgb(23 27 38 / 72%);
+  color: var(--dim);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.gear:hover {
+  color: var(--text);
+  border-color: var(--edge2);
+}
+
+/* Settings -------------------------------------------------------------- */
+
+.settings {
+  justify-items: stretch;
+  text-align: left;
+  gap: 1.125rem;
+}
+
+.settings .bar {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.bar-title {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+/* One hairline between rows, drawn by the gap over a darker backing. */
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--edge);
+  border: 1px solid var(--edge);
+  border-radius: 0.875rem;
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.875rem;
+  min-height: 3.5rem;
+  padding: 0.9375rem 1rem;
+  background: var(--panel);
+  text-align: left;
+}
+
+.row-btn {
+  border: 0;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  width: 100%;
+}
+
+.row-btn:hover {
+  background: var(--panel2);
+}
+
+.row .k {
+  display: block;
+  font-size: 0.90625rem;
+  font-weight: 600;
+}
+
+.row .sub {
+  display: block;
+  margin-top: 0.1875rem;
+  font-size: 0.71875rem;
+  font-weight: 500;
+  font-style: normal;
+  color: #5b6479;
+}
+
+.row .k.danger {
+  color: #f87171;
+}
+
+.row .chev {
+  color: var(--dim);
+  font-size: 1rem;
+}
+
+.row.is-off {
+  opacity: 0.5;
+}
+
+.row-input {
+  width: 8.75rem;
+  padding: 0.5625rem 0.75rem;
+  border: 1px solid var(--edge);
+  border-radius: 0.5625rem;
+  background: #0e121b;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.90625rem;
+  font-weight: 650;
+  text-align: right;
+}
+
+.rules {
+  display: grid;
+  gap: 0.625rem;
+  font-size: 0.78125rem;
+  line-height: 1.55;
+  color: var(--dim);
+}
+
+.rules b {
+  color: var(--text);
+}
+
+.swatches {
+  display: flex;
+  gap: 0.4375rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sw {
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--sw);
+  cursor: pointer;
+}
+
+.sw.sel {
+  border-color: var(--text);
+  box-shadow: inset 0 0 0 2px var(--panel);
+}
+
+/* Switch. A track and a knob, no checkbox — this never posts anywhere. */
+.sw-toggle {
+  position: relative;
+  flex: none;
+  width: 2.875rem;
+  height: 1.6875rem;
+  border: 1px solid var(--edge2);
+  border-radius: 99px;
+  background: #232a3b;
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease;
+}
+
+.sw-toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 1.1875rem;
+  height: 1.1875rem;
+  border-radius: 50%;
+  background: #77809a;
+  transition: left 180ms cubic-bezier(0.4, 0, 0.2, 1), background 180ms ease;
+}
+
+.sw-toggle.on {
+  background: rgb(255 176 32 / 22%);
+  border-color: rgb(255 176 32 / 50%);
+}
+
+.sw-toggle.on::after {
+  left: 1.375rem;
+  background: var(--dot);
+}
+
+.sw-toggle:disabled {
+  cursor: default;
+}
+
+.version {
+  font-size: 0.6875rem;
+  color: #4e566b;
+  text-align: center;
+}
+
+/*
+ * A manual override for players whose OS setting says otherwise. Kept in step
+ * with the media query at the foot of this file.
+ */
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
 }
 
 /* Landing + lobby ------------------------------------------------------- */
@@ -133,15 +346,15 @@
   font-size: 0.7rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--dim);
 }
 
 input {
   width: 100%;
   padding: 0.75rem 0.9rem;
-  border: 1px solid #2a3040;
+  border: 1px solid var(--edge);
   border-radius: 0.6rem;
-  background: var(--surface);
+  background: var(--panel);
   color: var(--text);
   font: inherit;
 }
@@ -155,7 +368,7 @@ input:focus-visible {
   display: grid;
   place-items: center;
   width: 100%;
-  color: var(--text-dim);
+  color: var(--dim);
   font-size: 0.7rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -166,12 +379,12 @@ input:focus-visible {
   grid-area: 1 / 1;
   width: 100%;
   height: 1px;
-  background: #232838;
+  background: var(--edge);
 }
 
 .divider span {
   grid-area: 1 / 1;
-  background: var(--bg-deep);
+  background: var(--ink);
   padding: 0 0.75rem;
 }
 
@@ -189,10 +402,47 @@ input:focus-visible {
   text-indent: 0.4em;
 }
 
-.lobby .code {
-  font-size: clamp(2.75rem, 20vw, 4.5rem);
-  letter-spacing: 0.22em;
-  text-indent: 0.22em;
+/*
+ * Room code tiles. One box per character rather than one long word: this gets
+ * read aloud across a room far more often than it gets typed, and separating
+ * the characters is what stops 8 and B running together.
+ */
+.code-tiles {
+  display: flex;
+  gap: 0.5625rem;
+  justify-content: center;
+}
+
+.code-tiles span {
+  width: 3.875rem;
+  height: 4.625rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--edge);
+  border-radius: 0.8125rem;
+  background: var(--panel);
+  color: var(--dot);
+  font-size: 2.25rem;
+  font-weight: 800;
+  box-shadow:
+    0 10px 24px -16px #000,
+    0 0 26px -14px rgb(255 176 32 / 55%);
+}
+
+.lobby .tag {
+  font-size: 0.71875rem;
+  font-weight: 620;
+  letter-spacing: 0.14em;
+  color: #5b6479;
+}
+
+/* 320px phones: shrink the tiles rather than let them wrap or overflow. */
+@media (max-width: 22.5rem) {
+  .code-tiles span {
+    width: 3.25rem;
+    height: 4rem;
+    font-size: 1.875rem;
+  }
 }
 
 .roster {
@@ -207,9 +457,11 @@ input:focus-visible {
   align-items: center;
   gap: 0.6rem;
   padding: 0.6rem 0.75rem;
-  border-radius: 0.6rem;
-  background: var(--surface);
-  font-size: 0.9rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  font-size: 0.90625rem;
+  font-weight: 650;
   text-align: left;
 }
 
@@ -229,23 +481,85 @@ input:focus-visible {
   white-space: nowrap;
 }
 
+.roster .tags {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
 .roster .badge {
-  font-size: 0.6rem;
-  letter-spacing: 0.1em;
+  font-size: 0.59375rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
+  color: #22160a;
+  background: var(--dot);
+  border: 1px solid transparent;
+  border-radius: 0.3125rem;
+  padding: 0.15rem 0.4rem;
+}
+
+/* Hollow, so HOST stays the louder of the two when someone is both. */
+.roster .badge.you {
+  background: transparent;
   color: var(--dot);
-  border: 1px solid rgb(255 194 75 / 35%);
-  border-radius: 999px;
-  padding: 0.1rem 0.4rem;
+  border-color: rgb(255 194 75 / 45%);
+}
+
+/*
+ * Exactly the height of the primary button it stands in for, so the screen
+ * does not shift under everyone else when the host presses Start.
+ */
+.waiting {
+  width: 100%;
+  padding: 0.9rem 2.5rem;
+  /*
+   * An INSET SHADOW, not a border. A 1px border on each side makes this box 2px
+   * taller than the button it replaces, and the explicit line-height keeps the
+   * text metrics identical too — between them that was a 4px jump for every
+   * guest at the moment the host pressed Start. There is a test below.
+   */
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--edge);
+  border-radius: 0.75rem;
+  background: var(--panel);
+  color: var(--dim);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 640;
+  letter-spacing: -0.005em;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.waiting[hidden] {
+  display: none;
+}
+
+.waiting i {
+  display: inline-block;
+  width: 0.375rem;
+  height: 0.375rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background: var(--dot);
+  vertical-align: middle;
+  animation: waiting-blip 1.4s ease-in-out infinite;
+}
+
+@keyframes waiting-blip {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .roster .state {
   font-size: 0.7rem;
-  color: var(--text-dim);
-}
-
-.roster li.is-ready .state {
-  color: #a3e635;
+  color: var(--dim);
 }
 
 .roster li.is-away {
@@ -282,14 +596,14 @@ input:focus-visible {
   border: 0;
   border-radius: 0.5rem;
   background: none;
-  color: var(--text-dim);
+  color: var(--dim);
   font-size: 1.6rem;
   line-height: 1;
   cursor: pointer;
 }
 
 .icon-btn:active {
-  background: var(--surface);
+  background: var(--panel);
 }
 
 .now-playing {
@@ -303,10 +617,10 @@ input:focus-visible {
 }
 
 .code-chip {
-  border: 1px solid #2a3040;
+  border: 1px solid var(--edge);
   border-radius: 0.5rem;
-  background: var(--surface);
-  color: var(--text-dim);
+  background: var(--panel);
+  color: var(--dim);
   font: inherit;
   font-size: 0.75rem;
   font-weight: 700;
@@ -324,7 +638,7 @@ input:focus-visible {
   text-align: center;
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--text-dim);
+  color: var(--dim);
   white-space: nowrap;
   overflow: hidden;
 }
@@ -385,7 +699,7 @@ input:focus-visible {
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--text-dim);
+  color: var(--dim);
   opacity: 0;
   transition: opacity 200ms ease, color 200ms ease;
 }
@@ -416,7 +730,7 @@ input:focus-visible {
   display: grid;
   place-items: center;
   border-radius: 999px;
-  background: var(--bg-deep);
+  background: var(--ink);
   box-shadow: 0 0 0 1px var(--dot);
   color: var(--dot);
   font-size: 0.55rem;
@@ -483,7 +797,8 @@ input:focus-visible {
 }
 
 .player.active {
-  background: var(--surface);
+  /* Raised surface — the active panel sits above the rest of the scoreboard. */
+  background: var(--panel2);
   box-shadow: 0 4px 18px rgb(0 0 0 / 45%);
 }
 
@@ -506,7 +821,7 @@ input:focus-visible {
 
 .ring-track {
   fill: none;
-  stroke: #232838;
+  stroke: var(--edge);
   stroke-width: 3;
 }
 
@@ -538,25 +853,53 @@ input:focus-visible {
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: 0.95rem;
+  font-size: 0.9375rem;
   font-weight: 800;
+  letter-spacing: -0.02em;
   color: var(--player-color);
 }
 
 .score {
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: 1.1875rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   line-height: 1;
 }
 
 .name {
-  font-size: 0.55rem;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
+  font-size: 0.65625rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+}
+
+/*
+ * Which one is me. Your name goes full white while everyone else stays grey,
+ * and a short bar in your colour sits under the panel. Neither costs a pixel of
+ * horizontal space — which is the whole point at eight players on a 320px
+ * phone, where a badge or an extra column would not fit.
+ */
+.player.you .name {
+  color: var(--text);
+  font-weight: 750;
+}
+
+.you-bar {
+  position: absolute;
+  left: 26%;
+  right: 26%;
+  bottom: -1px;
+  height: 2.5px;
+  border-radius: 3px;
+  background: var(--player-color);
+}
+
+.player {
+  position: relative;
 }
 
 .player.winner {
@@ -589,7 +932,7 @@ input:focus-visible {
 
 .toast {
   bottom: 12%;
-  color: var(--text-dim);
+  color: var(--dim);
 }
 
 .pill.show,
@@ -628,7 +971,7 @@ input:focus-visible {
   font-size: 0.7rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--dim);
 }
 
 .result h2 {
@@ -637,7 +980,7 @@ input:focus-visible {
 }
 
 .score-line {
-  color: var(--text-dim);
+  color: var(--dim);
   margin-bottom: 0.75rem;
 }
 

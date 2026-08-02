@@ -5,7 +5,7 @@
  */
 
 /** Bump whenever a wire type changes shape. Mismatched clients are told to refresh. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 // ---------------------------------------------------------------- timing ---
 
@@ -45,8 +45,15 @@ export const MAX_SPECTATORS = 20;
 
 // ------------------------------------------------------------ board size ---
 
+/** The engine's absolute floor, and where a collapsing board bottoms out. */
 export const MIN_GRID = 6;
-export const MAX_GRID = 12;
+export const MAX_GRID = 14;
+
+/**
+ * Grand is a real commitment — 420 moves — so it takes a real table. Below this
+ * it is two or three people alternating for the better part of an hour.
+ */
+export const GRAND_MIN_PLAYERS = 4;
 
 /**
  * Board sizes the host can pick from in the lobby.
@@ -54,12 +61,23 @@ export const MAX_GRID = 12;
  * A game is `2n(n+1)` MOVES long — lines, not boxes, set the clock — so length
  * grows quadratically. Naming them beats showing raw grid dimensions, because
  * "10x10" tells nobody it is a twenty-minute commitment.
+ *
+ * Every size starts at 8 or above so that the shrinking board works on all of
+ * them: with the floor at `SHRINK_FLOOR_SQUARES`, a 6x6 board could never burn
+ * a single ring, which made Twist on it indistinguishable from Simple. Each of
+ * these collapses down to 6x6 and stops — one burn for Small, four for Grand.
  */
 export const BOARD_PRESETS = [
-  { key: "small", label: "Small", grid: 6 },
-  { key: "medium", label: "Medium", grid: 8 },
-  { key: "large", label: "Large", grid: 10 },
-  { key: "grand", label: "Grand", grid: 12 },
+  /*
+   * `minPlayers: 1` is not a typo. The host picks the board while people are
+   * still arriving, so gating on the CURRENT roster would grey out every size
+   * in a lobby of one. The lobby already refuses to start below MIN_PLAYERS;
+   * only Grand is worth withholding until the table is real.
+   */
+  { key: "small", label: "Small", grid: 8, minPlayers: 1 },
+  { key: "medium", label: "Medium", grid: 10, minPlayers: 1 },
+  { key: "large", label: "Large", grid: 12, minPlayers: 1 },
+  { key: "grand", label: "Grand", grid: 14, minPlayers: GRAND_MIN_PLAYERS },
 ] as const;
 
 export type BoardPresetKey = (typeof BOARD_PRESETS)[number]["key"];
@@ -68,9 +86,17 @@ export function presetForGrid(grid: number): BoardPresetKey | null {
   return BOARD_PRESETS.find((p) => p.grid === grid)?.key ?? null;
 }
 
+/** Whether a lobby of this size may pick a given board. */
+export function presetAllowed(grid: number, playerCount: number): boolean {
+  const preset = BOARD_PRESETS.find((p) => p.grid === grid);
+  return preset === undefined ? false : playerCount >= preset.minPlayers;
+}
+
 /**
- * Default when the host hasn't chosen. Small lobbies get Medium; seven or eight
- * players get Large so nobody ends up with a handful of boxes each.
+ * Default when the host hasn't chosen. Small lobbies get Small; seven or eight
+ * players get Medium so nobody ends up with a handful of boxes each.
+ *
+ * Deliberately never returns Grand: it has to be chosen on purpose.
  */
 export function gridSizeFor(playerCount: number): number {
   return playerCount >= 7 ? 10 : 8;
@@ -94,6 +120,17 @@ export const LARGE_LOBBY_THRESHOLD = 6;
 /** Full rotations between collapses, once armed. */
 export const SHRINK_INTERVAL_ROTATIONS = 2;
 
+/**
+ * The board stops burning once its short side would drop below this. A ring
+ * collapsing into a 4x4 sliver is neither readable nor worth playing out, and
+ * the burn needs a decent ring to look like anything.
+ *
+ * Consequence worth knowing: a Twist game no longer ends by the board eating
+ * itself. It ends the ordinary way, when the surviving core is fully claimed —
+ * which still terminates, because every move places a line and lines run out.
+ */
+export const SHRINK_FLOOR_SQUARES = 6;
+
 export function shrinkArmFraction(playerCount: number): number {
   return playerCount >= LARGE_LOBBY_THRESHOLD
     ? SHRINK_ARM_FRACTION_LARGE_LOBBY
@@ -114,10 +151,62 @@ export const PLAYER_COLORS = [
   "#FBBF24", // amber
 ] as const;
 
-export const COLOR_BG_DEEP = "#0B0D12";
-export const COLOR_SURFACE = "#171B26";
+/**
+ * Surface and ink. These names match the CSS custom properties in
+ * `src/client/styles/base.css` one for one — one vocabulary, two files.
+ */
+export const COLOR_INK = "#0B0D12";
+export const COLOR_RISE = "#131722";
+export const COLOR_PANEL = "#171B26";
+export const COLOR_PANEL_RAISED = "#1C2130";
+export const COLOR_EDGE = "#242B3D";
+export const COLOR_EDGE_STRONG = "#323B52";
 export const COLOR_DOT = "#FFC24B";
-export const COLOR_DOT_GLOW = "#FFB020";
+export const COLOR_GLOW = "#FFB020";
 export const COLOR_TEXT = "#E8EAF0";
-export const COLOR_TEXT_DIM = "#7A8296";
-export const COLOR_SPENT = "#2A3040";
+export const COLOR_DIM = "#7A8296";
+
+/**
+ * Dead things don't glow, and that absence of light is how death reads on the
+ * board. One flat colour covers both a dead dot and a burned (spent) tile.
+ */
+export const COLOR_DEAD = "#2A3040";
+
+/**
+ * A square spent on a Wildcard. Deliberately NOT ash.
+ *
+ * The two dead tiles mean opposite things: a square the fire took keeps its
+ * point, while a square spent on a Wildcard was paid away and counts for
+ * nobody. Drawing both as ash made a trade look like damage. This one reads as
+ * metal — cold, hard-edged, lit from above like the primary button, with a
+ * bright top bevel that ash never has. Something you traded, not something
+ * that burned.
+ */
+export const SPENT_TILE = {
+  top: "#3C4557",
+  bottom: "#252B39",
+  edge: "rgba(104,117,146,.85)",
+  /** A one-pixel highlight along the top inner edge. This is what says metal. */
+  sheen: "rgba(198,210,236,.5)",
+} as const;
+
+/**
+ * The Twist burn. Canvas-only, so these live here rather than in CSS: a doomed
+ * dot heats up, tiles flash through the flame ramp and cool to ash.
+ */
+export const FIRE = {
+  doomedDot: "#FF7044",
+  doomedGlow: "rgb(255,80,40)",
+  ashFill: "rgba(15,19,28,.94)",
+  ashEdge: "rgba(35,42,59,.85)",
+  /** Hottest first. Sampled across a tile's flash-then-cool. */
+  flameRamp: [
+    "rgb(255,252,240)",
+    "rgb(255,232,168)",
+    "rgb(255,186,74)",
+    "rgb(255,126,44)",
+    "rgb(214,62,26)",
+    "rgb(104,26,12)",
+  ],
+  smoke: "rgba(60,54,52,.55)",
+} as const;
