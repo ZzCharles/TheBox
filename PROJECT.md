@@ -73,6 +73,13 @@ Two things only the real deploy revealed:
     gesture that `touch-action: none` does not suppress. See §10.2.
   - Sound: "isn't satisfying." Deferred by agreement — the tables to turn are `SFX_SECONDS`
     and `SFX_PEAK` in `waveforms.ts`. Nobody got far enough into a game to judge the burn.
+- **2026-08-03, second look.** Touch "is better". Two reports: "the collapse has no warning"
+  and "it's missing the shop feature". Both are **Twist-only features, and a room defaults
+  to `mode: "simple"`** (`GameRoom.ts`) — so the likeliest reading is that the game was
+  played in Simple, where there is no shrinking board and no Wildcard at all. ⚠️ **Worth
+  confirming before drawing conclusions about either feature**, and worth asking whether
+  the lobby makes the choice obvious enough, since the host has to pick Twist on purpose.
+  Both were rebuilt to be far more visible regardless — see §10.5.
 - **2026-07-31, 2 players, LAN, real phones.** Verdict: "it feels alright." Fixes that came
   out of it are in M6 part 1 and part 2 (screen jitter, board presets, collapse countdown,
   public wildcard badge). Still unanswered: does anyone actually buy a Wildcard, does 12s
@@ -772,6 +779,40 @@ battery burn for an animation nobody is looking at. It sits at base alpha otherw
 four-round cycle; `SHRINK_INTERVAL_ROTATIONS` is 2, and the collapse countdown chip already
 says "Board shrinks in 2" / "NEXT round" in words, which playtested well. Two sources for
 one fact, one of them wrong about the rules, is worse than one.
+
+---
+
+### 10.5 Telling players what Twist is doing
+
+Both Twist mechanics were invisible in play. The information existed; nobody saw it.
+
+**The collapse warning is a flame badge ON the board.** A 2.75rem ring in the board's
+top-right corner, absolutely positioned inside `.board-wrap` so it costs the layout nothing
+(§10.0). The ring is a dial that drains as the collapse approaches — full two rounds out,
+half at one round — and at one round it turns red and pulses. It hides itself when no
+collapse is pending, which includes after the final burn at the floor.
+
+The text chip in the shop row stays, because the two are read at different moments: the
+badge is glanceable mid-turn where the eyes already are, the chip spells it out in words.
+The chip alone was missed entirely — 0.7rem of dim text in a row nobody was looking at.
+
+⚠️ **Do not put a `transition` on the ring's `stroke`.** Transitions cannot run on a
+`display: none` element, and this badge hides and shows around every collapse, so an easing
+stroke froze part-way and left the ring amber while the board was one round from burning.
+Only `stroke-dashoffset` eases. "It is urgent now" should not fade in anyway.
+
+**The Wildcard announces itself once, when you can first afford it.** A chip reading
+`Wildcard · 10` that sits disabled and dim for the first ten minutes teaches nobody that it
+exists. So the first time it is genuinely payable — your turn, twist, ten squares banked,
+not already holding the maximum — a small pill appears above the button saying
+"Tap for Wildcard · one extra line", the button glows, and both fade after 5s. Once per
+game: a prompt that keeps coming back stops being information and becomes nagging.
+
+- It is **anchored to the buy button, not to the row.** The row holds three items, so a
+  row-centred pointer tail aims at the gap beside the button it is describing.
+- It is deliberately **not itself a buy button.** It appears unprompted right where a thumb
+  already is, and spending ten hard-won squares on a mis-tap is exactly the kind of thing
+  that makes someone put the game down. It points; the real button still does the spending.
 
 ---
 

@@ -667,6 +667,7 @@ input:focus-visible {
  * whole game and greys out instead of vanishing.
  */
 .shop {
+  position: relative; /* anchors .shop-nudge above the row without joining it */
   flex: 0 0 auto;
   display: flex;
   justify-content: center;
@@ -692,6 +693,173 @@ input:focus-visible {
   background: rgb(255 194 75 / 14%);
   color: var(--dot);
   opacity: 1;
+}
+
+/*
+ * The collapse warning, ON the board.
+ *
+ * Absolutely positioned inside .board-wrap so it costs the layout nothing —
+ * a row here would resize the canvas each time it appeared, which is the exact
+ * jitter the fixed-row rule exists to prevent.
+ */
+.burn-warning {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  animation: burn-in 260ms ease-out;
+}
+
+.left-handed .burn-warning {
+  right: auto;
+  left: 0.35rem;
+}
+
+@keyframes burn-in {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+
+.burn-warning svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  rotate: -90deg;
+}
+
+.burn-warning circle {
+  fill: rgb(11 13 18 / 78%);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.bw-track {
+  stroke: rgb(255 176 32 / 16%);
+}
+
+.bw-ring {
+  fill: none;
+  stroke: #ffb020;
+  /*
+   * Only the dial eases. The COLOUR must not: a transition cannot run on a
+   * display:none element, and this badge hides and shows around every collapse,
+   * so an easing stroke got frozen part-way and the ring stayed amber while the
+   * board was one round from burning. "It is urgent now" is also not something
+   * to fade into.
+   */
+  transition: stroke-dashoffset 320ms ease;
+}
+
+.bw-flame {
+  font-size: 1.05rem;
+  line-height: 1;
+  translate: 0 -0.05rem;
+  filter: drop-shadow(0 0 4px rgb(255 112 68 / 70%));
+}
+
+/* The count sits under the flame rather than beside it — 2.75rem is not wide
+   enough for both, and the flame is the part you read at a glance. */
+.bw-count {
+  position: absolute;
+  right: -0.1rem;
+  bottom: -0.1rem;
+  min-width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 999px;
+  background: #ffb020;
+  color: #22160a;
+  font-size: 0.6rem;
+  font-weight: 800;
+  line-height: 0.9rem;
+  text-align: center;
+}
+
+/* One round out: the ring is nearly empty, so the colour has to carry it. */
+.burn-warning.imminent .bw-ring {
+  stroke: #ff5a2c;
+}
+
+.burn-warning.imminent .bw-count {
+  background: #ff5a2c;
+  color: #fff;
+}
+
+.burn-warning.imminent {
+  animation: burn-pulse 780ms ease-in-out infinite;
+}
+
+@keyframes burn-pulse {
+  50% {
+    scale: 1.12;
+    filter: brightness(1.25);
+  }
+}
+
+/*
+ * "You can afford a Wildcard." Floats above the shop row without occupying it.
+ */
+/* Anchors the nudge to the Buy button rather than to the middle of the row. */
+.shop-slot {
+  position: relative;
+  display: inline-flex;
+}
+
+.shop-nudge {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 50%;
+  translate: -50% 0;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid rgb(255 194 75 / 45%);
+  border-radius: 999px;
+  background: rgb(28 33 48 / 96%);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 55%);
+  color: var(--dot);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  animation: nudge-in 240ms ease-out;
+}
+
+/* The little tail that points at the button it is talking about. */
+.shop-nudge::after {
+  content: "";
+  position: absolute;
+  bottom: -0.3rem;
+  left: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 1px solid rgb(255 194 75 / 45%);
+  border-bottom: 1px solid rgb(255 194 75 / 45%);
+  background: rgb(28 33 48 / 96%);
+  rotate: 45deg;
+  translate: -50% 0;
+}
+
+@keyframes nudge-in {
+  from {
+    opacity: 0;
+    translate: -50% 0.4rem;
+  }
+}
+
+.shop .chip.nudged:not(:disabled) {
+  border-color: var(--dot);
+  color: var(--dot);
+  animation: nudge-glow 1s ease-in-out infinite;
+}
+
+@keyframes nudge-glow {
+  50% {
+    box-shadow: 0 0 0 3px rgb(255 194 75 / 18%);
+  }
 }
 
 /* Collapse countdown — anticipation, not ambush. */
