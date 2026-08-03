@@ -22,7 +22,9 @@ import {
   FIRE,
   SPENT_TILE,
 } from "../../shared/constants.ts";
-import { DEAD, SPENT, UNCLAIMED, type GameState } from "../../shared/rules.ts";
+import { canCollapse, DEAD, SPENT, UNCLAIMED, type GameState } from "../../shared/rules.ts";
+import { motionReduced } from "../net/identity.ts";
+import { createBurn, STAGE_BURNING, STAGE_PENDING, type Burn } from "./burn.ts";
 import {
   boxRect,
   computeLayout,
@@ -79,9 +81,27 @@ const PAINT = {
     initialAlpha: 0.56,
   },
   doomed: {
-    periodMs: 1200,
+    periodMs: 1300,
     base: 0.55,
     swing: 0.45,
+  },
+  /**
+   * The dark closing in from outside the live area. Ambient in twist mode, and
+   * it deepens by a further `warnBoost` while the fuse burns.
+   *
+   * This is the only thing on the board that says "the edge is not safe" while
+   * nothing is actually happening, and it is why a collapse feels like the room
+   * getting smaller rather than like tiles being deleted.
+   */
+  vignette: {
+    /** Clear out to this fraction of the live half-width. */
+    clearAt: 0.84,
+    /** Fully dark by this fraction. */
+    darkAt: 1.55,
+    base: 0.32,
+    swing: 0.16,
+    warnBoost: 0.25,
+    color: "12,4,2",
   },
 } as const;
 
@@ -128,6 +148,15 @@ export interface BoardRenderer {
   resize(width: number, height: number, n: number): void;
   animateLine(lineId: number, now: number): void;
   animateBox(boxId: number, now: number): void;
+  /**
+   * Set the outer ring alight. Call with the `ShrinkOutcome` of a collapse the
+   * state has ALREADY applied — the fire is painted over a board that is
+   * finished changing, and never gates it. See `burn.ts`.
+   */
+  animateBurn(
+    shrink: { removedBoxes: number[]; harvested: Array<{ box: number; owner: number }> },
+    now: number,
+  ): void;
   reset(): void;
   /** Returns true while animations are still running. */
   draw(ctx: CanvasRenderingContext2D, now: number, view: BoardView): boolean;
@@ -139,12 +168,64 @@ export function createBoardRenderer(
   n: number,
 ): BoardRenderer {
   const anim = new Animator();
+  const burn: Burn = createBurn();
   let layout = computeLayout(n, width, height);
   let dots = makeDotSprites(layout);
   let viewW = width;
   let viewH = height;
   /** Last font handed to the context, so identical sets are skipped. */
   let lastFont = "";
+  /** Previous frame time, for the particle system's per-frame emission budget. */
+  let lastNow = 0;
+
+  /**
+   * The dark closing in around the live area.
+   *
+   * Drawn whenever a collapse is still possible, but it only BREATHES while
+   * something is actually pending — a warning round or a live burn. A pulse
+   * that ran all game would hold the render loop open from the first move to
+   * the last, which is exactly the battery burn the on-demand stage exists to
+   * avoid, in exchange for an animation nobody is looking at.
+   */
+  function drawVignette(ctx: CanvasRenderingContext2D, now: number, view: BoardView) {
+    const state = view.state;
+    if (state.mode !== "twist") return;
+    const pending = view.doomed.length > 0 || burn.active;
+    if (!pending && !canCollapse(state)) return;
+
+    const { r0, c0, r1, c1 } = state.bounds;
+    if (r0 > r1 || c0 > c1) return;
+
+    const left = dotX(layout, c0);
+    const right = dotX(layout, c1 + 1);
+    const top = dotY(layout, r0);
+    const bottom = dotY(layout, r1 + 1);
+    const cx = (left + right) / 2;
+    const cy = (top + bottom) / 2;
+    const inner = Math.max(right - cx, bottom - cy) * PAINT.vignette.clearAt;
+    if (inner <= 0) return;
+
+    const beat = pending
+      ? 0.5 + 0.5 * Math.sin((now * TAU) / PAINT.doomed.periodMs)
+      : 0.5;
+    const alpha =
+      PAINT.vignette.base +
+      PAINT.vignette.swing * beat +
+      PAINT.vignette.warnBoost * burn.warnProgress(now);
+
+    const g = ctx.createRadialGradient(
+      cx,
+      cy,
+      inner,
+      cx,
+      cy,
+      inner * (PAINT.vignette.darkAt / PAINT.vignette.clearAt),
+    );
+    g.addColorStop(0, `rgba(${PAINT.vignette.color},0)`);
+    g.addColorStop(1, `rgba(${PAINT.vignette.color},${alpha})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, viewW, viewH);
+  }
 
   /**
    * Dead things don't glow — everything alive on this board emits light, so the
@@ -161,6 +242,11 @@ export function createBoardRenderer(
 
     for (let r = 0; r <= layout.n; r++) {
       for (let c = 0; c <= layout.n; c++) {
+        // A dot on a burning ring is the fire's to draw: the state already has
+        // it outside the live area, so this loop would render it dead while it
+        // is still visibly alight.
+        if (burn.ownsDot(r, c)) continue;
+
         const x = dotX(layout, c);
         const y = dotY(layout, r);
         const inside =
@@ -181,6 +267,8 @@ export function createBoardRenderer(
         }
       }
     }
+
+    burn.drawDots(ctx, layout, now);
 
     /*
      * The finger-lit pair. This matters more than anything else on the board:
@@ -221,15 +309,46 @@ export function createBoardRenderer(
     const spent: number[] = [];
     const pulsing: number[] = [];
 
+    /*
+     * A claim pulse only survives while the square does.
+     *
+     * `owner >= 0` is load-bearing, not defensive: a line can claim a box and
+     * the very same move can collapse the ring it sits in, so for the ~160ms of
+     * the pulse the state already reads DEAD. Celebrating a square that no
+     * longer exists is wrong anyway, and indexing `players[DEAD]` to do it
+     * threw and took the whole board down with it.
+     */
+    const isPulsing = (box: number, owner: number) =>
+      owner >= 0 && anim.has(`box:${box}`);
+
     for (let box = 0; box < state.boxes.length; box++) {
       const owner = state.boxes[box];
       if (owner === UNCLAIMED) continue;
-      if (anim.has(`box:${box}`)) {
+      if (isPulsing(box, owner)) {
         pulsing.push(box);
         continue;
       }
-      if (owner === DEAD) ash.push(box);
-      else if (owner === SPENT) spent.push(box);
+      if (owner === DEAD) {
+        /*
+         * A square the state has already killed, which the fire has not reached
+         * yet, is drawn as whatever it was a moment ago — that is the whole
+         * trick that lets a burn run over a collapse that already happened.
+         */
+        const stage = burn.stageOf(box, now);
+        if (stage === STAGE_BURNING) continue; // the fire paints this one
+        if (stage === STAGE_PENDING) {
+          const was = burn.wasOwnedBy(box);
+          if (was >= 0) owned[was]!.push(box);
+          // Not on the harvested list but it had an owner: it was traded for a
+          // Wildcard before the fire got to it, so it burns as metal, not as a
+          // live square.
+          else if ((state.formerOwner[box] ?? -1) >= 0) spent.push(box);
+          continue;
+        }
+        ash.push(box);
+        continue;
+      }
+      if (owner === SPENT) spent.push(box);
       else owned[owner]!.push(box);
     }
 
@@ -294,12 +413,17 @@ export function createBoardRenderer(
       }
     }
 
+    // The fire, over the top of the finished squares but UNDER the letters —
+    // a burning tile gets its letter back as it cools, and it has to be legible
+    // through the ember rather than buried by it.
+    burn.drawTiles(ctx, layout, now, inset, size, radius);
+
     // Initials after all fills, so the font is set as few times as possible.
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (let box = 0; box < state.boxes.length; box++) {
       const owner = state.boxes[box];
-      if (owner === UNCLAIMED || anim.has(`box:${box}`)) continue;
+      if (owner === UNCLAIMED || isPulsing(box, owner)) continue;
 
       /*
        * ASH keeps its letter; SPENT does not. Opposite meanings: a square the
@@ -309,10 +433,22 @@ export function createBoardRenderer(
        */
       if (owner === SPENT) continue;
       if (owner === DEAD) {
+        const stage = burn.stageOf(box, now);
+        if (stage === STAGE_PENDING) {
+          // Still showing as its old self: full colour, full letter.
+          const player = players[burn.wasOwnedBy(box)];
+          if (player) {
+            drawInitial(ctx, box, player.initial, player.color, PAINT.box.initialAlpha);
+          }
+          continue;
+        }
         const was = state.formerOwner[box] ?? -1;
         const player = players[was];
         if (player) {
-          drawInitial(ctx, box, player.initial, COLOR_DIM, PAINT.ash.initialAlpha);
+          // Nothing is readable while it is white-hot; the grey letter fades
+          // back in over the cool.
+          const fade = stage === STAGE_BURNING ? burn.letterAlpha(box, now) : 1;
+          drawInitial(ctx, box, player.initial, COLOR_DIM, PAINT.ash.initialAlpha * fade);
         }
         continue;
       }
@@ -501,6 +637,7 @@ export function createBoardRenderer(
       viewH = h;
       layout = computeLayout(nextN, w, h);
       dots = makeDotSprites(layout);
+      burn.resize(layout);
     },
 
     animateLine(lineId, now) {
@@ -511,23 +648,44 @@ export function createBoardRenderer(
       anim.start(`box:${boxId}`, now, BOX_CLAIM_MS, easeOutCubic);
     },
 
+    animateBurn(shrink, now) {
+      // Reduced motion keeps the state change and drops the sequence: the ring
+      // is already ash in `state`, so doing nothing here IS the burn arriving
+      // rather than travelling.
+      if (motionReduced()) return;
+      burn.ignite(shrink.removedBoxes, shrink.harvested, layout, now);
+    },
+
     reset() {
       anim.clear();
+      // A fresh snapshot describes a board where this fire has already been out
+      // for a while. Finishing it would be animating history.
+      burn.reset();
     },
 
     draw(ctx, now, view) {
+      // Real elapsed time, clamped: a tab that was hidden for a minute must not
+      // hand the particle system a minute's worth of emission budget at once.
+      const dt = lastNow === 0 ? 16 : Math.min(50, now - lastNow);
+      lastNow = now;
+      const burning = burn.update(now, dt, layout);
+
       // Cleared in CSS pixels — the context is already DPR-scaled.
       ctx.clearRect(0, 0, viewW, viewH);
 
+      drawVignette(ctx, now, view);
       drawBoxes(ctx, now, view);
       drawCostPreview(ctx, view);
       drawLines(ctx, now, view);
       drawGhost(ctx, view);
       drawDots(ctx, now, view);
+      // Additive, and therefore last: the flame adds its light to a scene that
+      // is already finished underneath it.
+      burn.drawFlame(ctx, now, layout);
 
-      // The doomed breath is time-driven rather than tween-driven, so it has to
-      // keep asking for frames on its own.
-      return anim.update(now) || view.doomed.length > 0;
+      // The doomed breath and the fire are both time-driven rather than
+      // tween-driven, so they have to keep asking for frames on their own.
+      return anim.update(now) || view.doomed.length > 0 || burning;
     },
   };
 }

@@ -7,6 +7,7 @@
  */
 
 import { PLAYER_COLORS, PROTOCOL_VERSION } from "../../shared/constants.ts";
+import { play, setSoundEnabled } from "../audio/engine.ts";
 import {
   buzz,
   canVibrate,
@@ -53,7 +54,7 @@ export function mountSettings(root: HTMLElement): () => void {
             </div>
           </div>
 
-          ${toggleRow("sound", "Sound", "Not built yet — the game is still silent", p.sound)}
+          ${toggleRow("sound", "Sound", "A tick per line, a knock per square", p.sound)}
           ${toggleRow(
             "vibrate",
             "Vibration",
@@ -127,7 +128,12 @@ export function mountSettings(root: HTMLElement): () => void {
         const key = el.dataset.pref as "sound" | "vibrate" | "reduceMotion" | "leftHanded";
         const now = !prefs()[key];
         savePrefs({ [key]: now });
-        // Toggling vibration on should prove it works, not just claim to.
+        // A toggle for something you cannot see should prove it works rather
+        // than claim to. Order matters for sound: enable, then demonstrate.
+        if (key === "sound") {
+          setSoundEnabled(now);
+          if (now) play("click");
+        }
         if (key === "vibrate" && now) buzz(40);
         render();
       });

@@ -2,9 +2,9 @@
 
 > **Name:** **Tiki** (was BOX; renamed 2026-08-02).
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M5 complete. M6 is done bar audio and the set-piece animations.
-> The whole visual pass has landed; the game has not been played since it did.
-> **Last updated:** 2026-08-02
+> **Status:** M0–M5 complete. M6 is done bar the set-piece animations.
+> The visual pass and the audio pass have both landed; the game has not been played since.
+> **Last updated:** 2026-08-03
 
 ---
 
@@ -20,7 +20,7 @@ When a milestone completes, tick it in §15 and update `Last updated` above.
 is in `design/`:
 
 - `design/TIKI-HANDOVER.md` — the colour sheet, type scale and behaviour changes. **Sections
-  1–5 are built.** §6 (the Twist burn) is not.
+  1–6 are built**, bar the rounds-left dashes (see §10.4).
 - `design/tiki-board.html`, `tiki-ui.html`, `box-start-sequence.html` — reference prototypes
   with live tuning panels. Press **T** to open one. **Do not copy code out of them**; they
   have their own fake state and layout. Tune, press `Copy values`, and paste the sheet.
@@ -30,9 +30,9 @@ This file stays the engineering reference.
 
 ### Where the project stands
 
-**The game is finished, playable, and now looks the way it was designed to.** All rules,
-real-time multiplayer, lobby, reconnect, spectators, rematch and twist mode work. 107 tests
-pass. What remains is the things that MOVE and the things that make NOISE.
+**The game is finished, playable, looks the way it was designed to, and now makes a noise.**
+All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twist mode work.
+143 tests pass. What remains is the things that MOVE.
 
 | Area | State |
 |---|---|
@@ -41,8 +41,8 @@ pass. What remains is the things that MOVE and the things that make NOISE.
 | Board rendering + input | ✅ Done, design values applied, 0.7 ms/frame |
 | Twist mode | ✅ Done, with the shrink floor |
 | Screens: landing, settings, lobby, game | ✅ Done — full colour, type and behaviour pass |
-| **Sound** | ❌ Silent — highest-value gap. The Settings toggle stores a preference nothing reads yet. |
-| **Twist burn** | ❌ A ring still vanishes in one frame. Ash and dead dots are drawn; the FIRE is not. Fully specced in the handover §6. |
+| **Sound** | ✅ Done — seven synthesised sounds, 36 tests. `clack` is built but unused until M7. |
+| **Twist burn** | ✅ Done — fuse, ignition, spreading front, flame, ash. 2.6 ms worst frame. |
 | **Start sequence** | ❌ No Play button animation, no carpet-in |
 | **Endgame sequence** | ❌ Winner overlay only, no shatter |
 | **PWA / installable** | ❌ Not started |
@@ -158,7 +158,7 @@ Box/
 ├─ index.html
 ├─ public/
 │  ├─ icons/                   ← 192/512 + maskable
-│  └─ sfx/                     ← tick, click, clack, thunk, whoosh, fanfare
+│  └─ fonts/                   ← Archivo, self-hosted
 └─ src/
    ├─ shared/                  ← imported by BOTH client and server. No DOM, no Workers APIs.
    │  ├─ protocol.ts           ← every message type, versioned
@@ -179,11 +179,11 @@ Box/
       │  ├─ socket.ts          ← connect, backoff reconnect, clock sync
       │  └─ store.ts           ← applies server events → local mirror + subscriptions
       ├─ render/
-      │  ├─ stage.ts           ← canvas setup, DPR, resize, RAF loop
-      │  ├─ boardLayer.ts      ← dots, lines, claimed boxes (dirty-flag redraw)
-      │  ├─ fxLayer.ts         ← every-frame: pending line, pulses, particles, shatter
-      │  ├─ tween.ts           ← ~60 lines: easing + timeline
-      │  └─ particles.ts
+      │  ├─ stage.ts           ← canvas setup, DPR, resize, on-demand RAF loop
+      │  ├─ layout.ts          ← PURE. board <-> screen, hit testing. tested.
+      │  ├─ boardRenderer.ts   ← dots, lines, claimed boxes, vignette
+      │  ├─ burn.ts            ← the Twist fire: schedule, particles, ash
+      │  └─ tween.ts           ← ~60 lines: keyed easing
       ├─ input/
       │  └─ pointer.ts         ← tap-nearest-line + drag-from-dot, hit tolerance
       ├─ ui/
@@ -191,8 +191,8 @@ Box/
       │  ├─ screens/           ← landing, lobby, game, results
       │  └─ components/        ← scoreboard, shotclock, shop, toast, playButton
       ├─ audio/
-      │  ├─ engine.ts          ← unlock on first gesture, pool, ducking
-      │  └─ sfx.ts
+      │  ├─ waveforms.ts       ← PURE. the seven sounds, synthesised. tested.
+      │  └─ engine.ts          ← unlock on first gesture, voices, ducking, mute
       └─ styles/
 ```
 
@@ -522,11 +522,14 @@ predictable. Benched players are skipped but keep their slot.
   their points, so the toast reads "N boxes banked · M lost". Phrasing it as pure loss made
   a neutral mechanic read as a punishment.
 - On collapse:
-  - Boxes in the ring **already claimed** → owner keeps the point. The tile detaches and
-    flies to their scoreboard immediately (a preview of the endgame animation, reused code).
+  - Boxes in the ring **already claimed** → owner keeps the point, and once the tile has
+    cooled it keeps their letter in grey, so the board stays countable.
   - Boxes in the ring **unclaimed** → destroyed. Worth nothing to anyone.
-  - Lines belonging only to the ring are removed. The board visually contracts and
-    re-centres over ~500ms with a `whoosh`.
+  - Lines belonging only to the ring are removed.
+  - **The board does not move.** No contraction, no re-centre, no resize (revised
+    2026-08-03 — the design pass was explicit about this, and it is the whole reason
+    players can keep counting their squares afterwards). The ring burns *in place* over
+    ~2.9s with a `whoosh`; see §10.4.
 - **The board stops burning at a 6-square short side** (`SHRINK_FLOOR_SQUARES`, revised
   2026-08-02). A ring collapsing into a 4×4 sliver is neither readable nor worth playing
   out, and the burn needs a decent ring to look like anything. Consequence: a Twist game no
@@ -673,9 +676,59 @@ preallocated pool. Tweens are structs in a flat array, not closures.
 | Line placement | 140ms | Draw-on from origin dot, ease-out. `tick` sfx at 0ms. |
 | Box claim pulse | 260ms | Scale 0.85→1.06→1.0, fill fades in, then initial. `click` at 0ms. |
 | Turn handoff | 180ms | Active player panel glow crossfade. |
-| Shrink warning | 1 rotation | 900ms red pulse loop on doomed tiles. |
-| Shrink collapse | 500ms | Tiles burn away, board re-centres. `whoosh`. |
+| Shrink warning | 2 rotations | Doomed ring breathes, period 1.3s. Countdown chip in the shop row. |
+| Shrink collapse | ~2.9s total | 1400ms fuse, then the ring burns in place. See §10.4. `whoosh` at 0ms. |
 | Endgame shatter | ≤3.5s total | See §12.3. Stagger scales down as box count rises. |
+
+### 10.4 The Twist burn (`src/client/render/burn.ts`)
+
+**The fire is painted over a collapse that has already happened.** This is the single fact
+that explains the whole file. `applyMove` collapses a ring *instantly* — the boxes are
+`DEAD`, the orphaned lines are cleared and `bounds` has contracted before a frame is drawn —
+because animations never gate state (§5). So the burn runs backwards from how it looks: it
+is handed the `ShrinkOutcome`, and for ~2.9s it draws those squares as though they were
+still alive, then burns them down to the ash the state has claimed they are all along.
+
+Consequences worth knowing:
+
+- Play continues over the top of it, which is correct — the ring is dead and nobody can
+  move there anyway.
+- A reconnect mid-burn just shows the finished board. `reset()` drops the fire, because
+  finishing it would be animating history.
+- **The 1400 ms warning fuse sits AFTER the state collapse, not before it.** The prototype
+  put it before, having no rounds to work with; the real game already gave two rounds of
+  notice (§9.2), so the fuse is the "it's going NOW" beat rather than the warning itself.
+
+The sequence, values from `design/tiki-board.html`:
+
+| Phase | Time | What |
+|---|---|---|
+| Fuse | 0–1400ms | Doomed dots pulse faster (period 100→30ms); the **top-left corner dot** heats toward white and swells 1.35×, so players see *where* before *when*; the vignette deepens by 0.25. |
+| Ignition | 1400ms | The top-left square catches. |
+| Spread | 42ms/tile | **Both ways around the ring at once**, the two arms meeting at the opposite corner. A 36-tile ring is alight end to end in ~760ms. |
+| Per tile | 130ms flash, 420ms cool | White-hot → hot → ember → ash, landing exactly on `ashFill` so the cool arrives at the resting state instead of stepping to it. |
+| Per dot | with its first neighbour | Flashes white, cools to `COLOR_DEAD`, glow to zero. Only the OUTER dots die; the inner ones are the new edge. |
+
+**`harvested` is load-bearing, not decoration.** By ignition time the state has overwritten
+`boxes[id]` with `DEAD`, and `formerOwner` cannot distinguish "Ada owned this" from "Ada
+spent this on a Wildcard" — both write it. Without the harvested list a traded square would
+spend the fuse pretending to be a live one, and since Wildcards burn the squares furthest
+from centre, the traded ones are *exactly* the ring this fire eats.
+
+**Measured** on a 10×10 board with a 36-tile ring: **1.3 ms median, 2.6 ms worst frame**
+against the 16.67 ms budget — 6× headroom. Desktop, not a phone. The fire is a *front*, not
+a bonfire: only ~18 tiles are alight at once whatever the ring size, so Grand costs
+proportionally more particles but not proportionally more frames. Particles come from a
+preallocated pool of 460 and are recycled by swapping references, never by allocating.
+
+⚠️ **The vignette only breathes while something is pending.** A pulse that ran all game
+would hold the on-demand render loop open from the first move to the last (§10.1) — pure
+battery burn for an animation nobody is looking at. It sits at base alpha otherwise.
+
+**Deliberately not built: the four rounds-left dashes** from handover §6. They assume a
+four-round cycle; `SHRINK_INTERVAL_ROTATIONS` is 2, and the collapse countdown chip already
+says "Board shrinks in 2" / "NEXT round" in words, which playtested well. Two sources for
+one fact, one of them wrong about the rules, is worse than one.
 
 ---
 
@@ -743,7 +796,9 @@ for deuteranopia separation):
 6. Grid lines *do not* draw — only dots. The empty board should feel like an invitation.
 
 **This sequence is also where Web Audio gets unlocked** (first user gesture). Convenient
-and non-negotiable on iOS.
+and non-negotiable on iOS. *Until it is built, the first gesture anywhere in the app does
+the unlocking (§13), and the Play button will simply become one more of them — no change
+needed here when it lands.*
 
 ### 12.2 During play
 
@@ -786,21 +841,56 @@ and non-negotiable on iOS.
 
 ## 13. Audio
 
-Six sounds, all short, all in `public/sfx/` as `.webm` + `.mp3` fallback (iOS).
+**Synthesised, not sampled** (revised 2026-08-03 — this section previously specified
+`.webm` + `.mp3` files in `public/sfx/`). Seven sounds, none longer than 1.2s, written as
+maths in `src/client/audio/waveforms.ts`. That costs no bundle bytes, no request, no decode,
+and — the part that actually decided it — no iOS codec fallback. Tuning one is editing a
+number rather than opening a DAW.
 
-| Name | Used for | Character |
-|---|---|---|
-| `tick` | Line placed | Crisp, dry, ~40ms |
-| `click` | Box claimed | Fuller, woody, ~90ms |
-| `thunk` | Play button lid | Mechanical latch, ~150ms |
-| `whoosh` | Board shrink | Low sweep, ~400ms |
-| `clack` | Endgame piece lands | Sharp, tile-on-tile, ~60ms |
-| `blip` | 8s shot-clock warning | Quiet, high, ~50ms |
-| `fanfare` | Victory | ~1.2s |
+| Name | Used for | Character | Length |
+|---|---|---|---|
+| `tick` | Line placed | Band of noise, crisp and dry | 45ms |
+| `click` | Box claimed | Struck wood, bending down in pitch | 90ms |
+| `thunk` | Play-button lid · Wildcard bought | Mechanical latch: strike, body, catch | 150ms |
+| `whoosh` | Board shrink | Noise behind a sweeping cutoff | 400ms |
+| `clack` | Endgame piece lands | Tile on tile, harder than `click` | 60ms |
+| `blip` | 4s shot-clock warning | Quiet, high, 2ms attack | 50ms |
+| `fanfare` | Victory | Triad arriving a note at a time | 1.2s |
 
-Engine rules: decode once into `AudioBuffer`s at boot. Pool of `AudioBufferSourceNode`s.
-Global gain node for a mute toggle (**persist the mute preference** — people play this in
-public). Duck to 4 concurrent voices max.
+`waveforms.ts` is **pure** — a name and a sample rate in, a `Float32Array` out — for the
+same reason `rules.ts` is: it makes the part with the interesting logic testable under
+`node --test`. 36 tests assert every sound is the length the table says, never clips, is
+never silence, renders identically twice, and **starts and ends on an exactly zero sample**.
+That last one is not fussiness: a buffer with a non-zero endpoint is a step change in the
+speaker, which is an audible click layered on top of the sound you designed, loudest on
+precisely the short sharp sounds where it is hardest to diagnose.
+
+Relative loudness lives in one table (`SFX_PEAK`) and is asserted by a test:
+`blip < tick < click < fanfare`. A sound you hear every three seconds has to sit under one
+you hear once a game.
+
+`engine.ts` is the platform half, and obeys three rules:
+
+- **Nothing exists until the first gesture.** A browser makes no sound until the user has
+  touched it, and on iOS the context must be *created* inside a real gesture handler, not
+  merely resumed from one. `initAudio()` only installs listeners; the context and all seven
+  buffers are built in the first `pointerdown`/`keydown`/`touchend` anywhere in the app.
+  Buffers are rendered at the context's own sample rate, so playback never resamples.
+- **Nothing here may ever throw.** Audio is decoration. A browser missing the API, blocked
+  by policy, or out of voices must produce a silent game, never a broken one.
+- **Four voices, oldest evicted.** A chain of claims fires faster than the sounds decay, and
+  eight overlapping copies of one 90ms click is mush rather than feedback.
+
+Every voice gets ±5% pitch jitter, so a chain of six ticks sounds like a hand placing pieces
+instead of a machine. `fanfare` passes `jitter: 0` — it is musical, and a detuned fanfare is
+a sour one. The mute preference gates playback at `play()` rather than muting the master
+gain, and persists in `box.prefs` (people play this in public).
+
+**One mechanic, one sound.** Buying a Wildcard makes a noise; arming it does not, because
+the badge going bright already says so and a second sound would blur what either means.
+
+⚠️ `clack` is built, tested and **currently unused** — it belongs to the endgame shatter in
+M7. It is here because it is part of the vocabulary, not because anything plays it yet.
 
 ---
 
@@ -885,22 +975,27 @@ public). Duck to 4 concurrent voices max.
       - [x] Board presets 8/10/12/14, Grand gated on 4 players, shrink floor at 6 (2026-08-02)
       - [x] Landing without a name field, Settings screen, no ready button,
             YOU tags, grow-together initials (2026-08-02)
-      - [ ] Audio: tick, click, thunk, whoosh, clack, blip, fanfare
+      - [x] Audio: tick, click, thunk, whoosh, clack, blip, fanfare — synthesised,
+            not sampled, 36 tests (2026-08-03)
+      - [x] The Twist burn — fuse, ignition, spreading front, flame, ash, vignette
+            (2026-08-03). Fixed a latent crash on the way: a square claimed by the
+            same move that collapsed its ring pulsed as `players[DEAD]`.
       - [ ] Play button with the hinged lid + screen shake
       - [ ] Carpet-in dot animation
       - [ ] Visual token pass across every screen
 - [ ] **M6 remainder — in this order:**
-      1. **Playtest what exists.** It has not been played since the visual pass. Tap accuracy
+      1. **Playtest what exists.** It has not been played since the visual pass, has never
+         been heard at all, and nobody has watched the board burn on a phone. Tap accuracy
          on the bigger boards, whether Small at ~14 min is right, whether the grown initials
-         read, whether the Twist floor makes the endgame better or duller.
-      2. **Audio.** Six sounds, hand-rolled Web Audio, no library. Highest-value gap, and it
-         depends on nothing else.
-      3. **The Twist burn** (handover §6, and a fresh `Copy values` from `tiki-board.html`).
-         Warning phase, ignition spreading both ways around the ring, flame particles,
-         vignette, rounds-left dashes. The tiles already know how to look burned; what is
-         missing is the transition.
-      4. **Start sequence** (`box-start-sequence.html` holds the timings).
-- [ ] **M7 — Endgame sequence.** Crack, flight, clacks, count-up, victory.
+         read, whether the Twist floor makes the endgame better or duller, whether the
+         sounds are the right sounds at the right volumes, and whether ~2.9s of fire is
+         the right length when you are waiting to take your turn. The tables to turn are
+         `SFX_SECONDS`/`SFX_PEAK` in `waveforms.ts` and `BURN` in `burn.ts`.
+      2. **Start sequence** (`box-start-sequence.html` holds the timings). `thunk` is built
+         and waiting for the lid. The last unbuilt piece of M6.
+- [ ] **M7 — Endgame sequence.** Crack, flight, clacks, count-up, victory. `clack` and
+      `fanfare` already exist; `fanfare` fires on the winner overlay today and should move
+      to step 6 of §12.3 when the sequence lands.
 - [ ] **M8 — PWA + ship.** Manifest, service worker, icons, offline shell, custom domain.
       **Playtest with 6 real people.**
 

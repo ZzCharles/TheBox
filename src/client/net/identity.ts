@@ -136,6 +136,19 @@ export function canVibrate(): boolean {
   return typeof navigator.vibrate === "function";
 }
 
+/**
+ * Whether to drop motion, from EITHER the OS setting or our own toggle.
+ *
+ * CSS gets this through the `reduce-motion` class and its own media query, but
+ * the board is canvas and has to ask in JavaScript. The rule the design pass
+ * settled on: keep every state change, drop every sequence. Squares still
+ * claim, the board still burns — they arrive rather than travel.
+ */
+export function motionReduced(): boolean {
+  if (prefs().reduceMotion) return true;
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+}
+
 /** Everything this device remembers. Used by "forget this device" in Settings. */
 export function forgetDevice(): void {
   for (const key of [CLIENT_ID_KEY, NAME_KEY, OWNER_KEY, PREFS_KEY]) {

@@ -29,6 +29,7 @@ import {
   turnSecondsFor,
   type Mode,
 } from "../../shared/rules.ts";
+import { play } from "../audio/engine.ts";
 import { exposeDebug } from "../devtools.ts";
 import { attachPointer } from "../input/pointer.ts";
 import {
@@ -244,6 +245,7 @@ function startGame(
       // Feature-detected: iOS Safari has no Vibration API, so the pill and the
       // amber ring have to carry the warning on their own.
       navigator.vibrate?.(40);
+      play("blip");
       showPill(`${WARN_AT_SECONDS_REMAINING}s`);
     }
 
@@ -251,6 +253,13 @@ function startGame(
       const result = skipTurn(state, currentPlayer(state));
       if (result.ok) {
         toast(result.value.benched ? "Parked — tap to return" : "Time");
+        // The ring goes when the rotation completes, and a rotation can just as
+        // easily complete on a timeout as on a move.
+        if (result.value.shrink) {
+          play("whoosh");
+          renderer.animateBurn(result.value.shrink, now);
+          stage.requestFrame();
+        }
         beginTurn();
       }
     }
@@ -299,6 +308,15 @@ function startGame(
       ghost = null;
       renderer.animateLine(lineId, now);
       for (const box of result.value.claimed) renderer.animateBox(box, now);
+
+      play("tick");
+      // One line can close two boxes; 70ms apart reads as two events.
+      result.value.claimed.forEach((_, i) => play("click", { delay: i * 0.07 }));
+      if (result.value.shrink) {
+        play("whoosh");
+        renderer.animateBurn(result.value.shrink, now);
+      }
+
       stage.requestFrame();
 
       beginTurn();
@@ -328,6 +346,8 @@ function startGame(
 
   function finish() {
     window.clearInterval(clock);
+    // Musical, so no pitch scatter.
+    play("fanfare", { jitter: 0 });
     const names = state.winners.map((w) => players[w]!.name).join(" & ");
     const top = state.scores[state.winners[0] ?? 0] ?? 0;
 

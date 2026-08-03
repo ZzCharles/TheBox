@@ -7,6 +7,7 @@ import { mountRoom } from "./ui/room.ts";
 import { mountSettings } from "./ui/settings.ts";
 import { wordmark } from "./ui/wordmark.ts";
 import { applyPrefs } from "./net/identity.ts";
+import { initAudio } from "./audio/engine.ts";
 
 /**
  * Hash routing, so an invite link is just a URL you can paste into a group chat.
@@ -74,4 +75,9 @@ window.addEventListener("hashchange", route);
 // screen paints, or reduce-motion lands one frame late and you see the thing it
 // was meant to suppress.
 applyPrefs();
+
+// Only installs listeners. A browser makes no sound until the user has touched
+// it — the context is built inside the first gesture, whatever that gesture is.
+initAudio();
+
 route();

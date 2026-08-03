@@ -199,6 +199,25 @@ export const FIRE = {
   doomedGlow: "rgb(255,80,40)",
   ashFill: "rgba(15,19,28,.94)",
   ashEdge: "rgba(35,42,59,.85)",
+
+  /**
+   * The four stops a TILE passes through as it burns, as raw channels so the
+   * renderer can interpolate between them.
+   *
+   * Distinct from `flameRamp` below, which colours the particles: this is the
+   * square itself going white-hot, cooling to ember, and settling into ash the
+   * exact colour of `ashFill`. The last stop matching ash is what makes the
+   * cool land on the resting state instead of stepping to it.
+   */
+  tileFlash: [255, 244, 214],
+  tileHot: [255, 150, 50],
+  tileEmber: [190, 58, 28],
+  tileAsh: [15, 19, 28],
+  /** Where a cooled tile's edge ends up: the same grey as `ashEdge`. */
+  tileEdgeAsh: [35, 42, 59],
+  /** A dot that has finished dying. Matches `COLOR_DEAD`. */
+  deadDot: [42, 48, 64],
+
   /** Hottest first. Sampled across a tile's flash-then-cool. */
   flameRamp: [
     "rgb(255,252,240)",

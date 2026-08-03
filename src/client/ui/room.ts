@@ -28,6 +28,7 @@ import {
   wildcardCostPreview,
   skipTurn,
   type GameState,
+  type ShrinkOutcome,
 } from "../../shared/rules.ts";
 import {
   BOARD_PRESETS,
@@ -39,6 +40,7 @@ import {
   MIN_PLAYERS,
   WILDCARD_COST,
 } from "../../shared/constants.ts";
+import { play } from "../audio/engine.ts";
 import { exposeDebug } from "../devtools.ts";
 import { attachPointer } from "../input/pointer.ts";
 import { clientId, ownerKey, prefs, storedName } from "../net/identity.ts";
@@ -130,7 +132,10 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
 
     room.turnDeadline = msg.turn.turnDeadline;
     onMoveRendered?.(msg.lineId, result.value.claimed);
-    if (msg.shrink) announceShrink(msg.shrink);
+    if (msg.shrink) {
+      onShrinkRendered?.(msg.shrink);
+      announceShrink(msg.shrink);
+    }
     if (msg.wildcardFired) {
       toast(`${room.players[msg.playerIndex]?.name ?? "Someone"} used a Wildcard`);
     }
@@ -156,6 +161,9 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       return;
     }
     const who = room.players[msg.playerIndex]?.name ?? "Someone";
+    // Only the purchase makes a noise. Arming is announced by the badge going
+    // bright, and giving one mechanic two sounds blurs what each one means.
+    if (msg.action === "bought") play("thunk", { gain: 0.85 });
     toast(
       msg.action === "bought"
         ? `${who} bought a Wildcard for ${WILDCARD_COST}`
@@ -169,6 +177,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
    * mechanic read as a punishment.
    */
   function announceShrink(shrink: { removedBoxes: number[]; harvested: unknown[] }) {
+    play("whoosh");
     const kept = shrink.harvested.length;
     const lost = shrink.removedBoxes.length - kept;
     toast(
@@ -217,7 +226,12 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       return;
     }
     room.turnDeadline = msg.turn.turnDeadline;
-    if (msg.shrink) announceShrink(msg.shrink);
+    if (msg.shrink) {
+      // A collapse can land on a TIMEOUT as well as on a move — the ring goes
+      // when the rotation completes, however it completed.
+      onShrinkRendered?.(msg.shrink);
+      announceShrink(msg.shrink);
+    }
   }
 
   function resync() {
@@ -233,6 +247,8 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
 
   /** Set by the game view so board animations can fire on broadcast moves. */
   let onMoveRendered: ((lineId: number, claimed: number[]) => void) | null = null;
+  /** Set by the game view; sets the collapsed ring alight. */
+  let onShrinkRendered: ((shrink: ShrinkOutcome) => void) | null = null;
   /** Set by the game view; drops tweens that a fresh snapshot has invalidated. */
   let resetAnimations: (() => void) | null = null;
 
@@ -245,6 +261,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       disposeView = null;
       updateView = null;
       onMoveRendered = null;
+      onShrinkRendered = null;
       resetAnimations = null;
       view = want;
       if (want === "connecting") mountConnecting();
@@ -570,6 +587,19 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       if (pending === lineId) pending = null;
       renderer.animateLine(lineId, now);
       for (const box of claimed) renderer.animateBox(box, now);
+
+      // Everyone hears every move — that is what makes it feel like one table
+      // rather than four people staring at four phones.
+      play("tick");
+      // One line can close two boxes. Spaced by 70ms so it lands as a
+      // double-take rather than as one louder click.
+      claimed.forEach((_, i) => play("click", { delay: i * 0.07 }));
+
+      stage.requestFrame();
+    };
+
+    onShrinkRendered = (shrink) => {
+      renderer.animateBurn(shrink, performance.now());
       stage.requestFrame();
     };
 
@@ -603,6 +633,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         warned = true;
         // Absent on iOS Safari; the pill and amber ring carry it there.
         navigator.vibrate?.(40);
+        play("blip");
         showPill(`${Math.ceil(left)}s`);
       }
 
@@ -731,6 +762,11 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       if (!room || !state) return;
 
       if (overlay.hidden) {
+        // Guarded by `overlay.hidden`, which is what makes this fire once at
+        // the end of the game rather than on every rematch-vote refresh.
+        // No pitch scatter: this one is musical, and a detuned fanfare is a
+        // sour fanfare.
+        play("fanfare", { jitter: 0 });
         const names = state.winners.map((w) => room!.players[w]?.name ?? "?").join(" & ");
         const top = state.scores[state.winners[0] ?? 0] ?? 0;
         overlay.hidden = false;
