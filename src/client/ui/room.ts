@@ -201,6 +201,30 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
   }
 
   /**
+   * Hand the room to someone else: the link if we can, the code if we can't.
+   *
+   * `navigator.clipboard` is SECURE-CONTEXT ONLY — undefined over plain http to
+   * a LAN address, which is precisely where playtests happen. Optional chaining
+   * short-circuits the ENTIRE chain, so `clipboard?.writeText(...).then(...)`
+   * does not throw there; it silently evaluates to nothing. No copy, no toast,
+   * a button that looks broken and a host who cannot invite anyone.
+   *
+   * So: feature-detect, and fall back to the code itself — which is what people
+   * read across a table anyway, and why it is four characters long.
+   */
+  function shareInvite() {
+    const sayCode = () => toast(`Room code ${code} — type it in`);
+    if (!navigator.clipboard) {
+      sayCode();
+      return;
+    }
+    void navigator.clipboard
+      .writeText(location.href)
+      .then(() => toast("Invite link copied"))
+      .catch(sayCode);
+  }
+
+  /**
    * Replay a timeout locally through the same `skipTurn` the server ran, rather
    * than asking for a fresh snapshot. Keeps bench flags and turn order in
    * lockstep with no extra round-trip.
@@ -336,6 +360,14 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         <button class="primary" id="start" hidden>Start game</button>
         <div class="waiting" id="waiting" hidden><i></i><span id="waiting-text"></span></div>
         <p class="hint" id="lobby-status"></p>
+
+        <!--
+          toast() targets #toast and quietly does nothing when it is absent, so
+          without this the lobby had no way to answer the share button at all —
+          "Invite link copied" went nowhere on every origin. Fixed position, so
+          it costs the layout nothing.
+        -->
+        <div class="toast" id="toast"></div>
       </main>`;
 
     const roster = root.querySelector<HTMLElement>("#roster")!;
@@ -361,12 +393,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     });
     root.querySelector<HTMLElement>("#leave")!.addEventListener("click", leaveGame);
     startBtn.addEventListener("click", () => net.send({ t: "start" }));
-    root.querySelector<HTMLElement>("#share")!.addEventListener("click", () => {
-      void navigator.clipboard
-        ?.writeText(location.href)
-        .then(() => toast("Invite link copied"))
-        .catch(() => toast(location.href));
-    });
+    root.querySelector<HTMLElement>("#share")!.addEventListener("click", shareInvite);
 
     updateView = () => {
       if (!room) return;
@@ -490,15 +517,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       </div>`;
 
     root.querySelector<HTMLElement>("#back")!.addEventListener("click", leaveGame);
-    root.querySelector<HTMLElement>("#code-chip")!.addEventListener("click", () => {
-      // navigator.clipboard is secure-context only, so this silently does
-      // nothing over plain http on a LAN. Show the code either way.
-      void navigator.clipboard
-        ?.writeText(location.href)
-        .then(() => toast("Invite link copied"))
-        .catch(() => toast(`Room code ${code}`));
-      if (!navigator.clipboard) toast(`Room code ${code}`);
-    });
+    root.querySelector<HTMLElement>("#code-chip")!.addEventListener("click", shareInvite);
 
     const boardHost = root.querySelector<HTMLElement>("#board")!;
     const banner = root.querySelector<HTMLElement>("#banner")!;
