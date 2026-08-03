@@ -151,10 +151,23 @@ export function connect(options: NetOptions): Net {
 
   open();
 
+  /**
+   * Intents that mean nothing once the moment has passed.
+   *
+   * A `move` is bound to a `turnSeq`; queueing one through a reconnect and
+   * firing it seconds later guarantees the server drops it as stale, and the
+   * player is left holding a line that will never land. The same goes for
+   * buying and arming, which are both "on my turn, right now" actions.
+   *
+   * Everything else — hello, configure, start, rematch, wake — still queues,
+   * because those are durable requests that remain true whenever they arrive.
+   */
+  const PERISHABLE = new Set(["move", "buy", "arm"]);
+
   return {
     send(msg) {
       if (socket?.readyState === WebSocket.OPEN) raw(msg);
-      else queue.push(msg);
+      else if (!PERISHABLE.has(msg.t)) queue.push(msg);
     },
     now: () => Date.now() + offset,
     get latency() {

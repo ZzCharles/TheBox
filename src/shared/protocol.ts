@@ -179,6 +179,15 @@ export type ServerMessage =
   | { t: "error"; code: ErrorCode; message: string };
 
 export type ErrorCode =
+  /**
+   * The move arrived describing a turn that has already ended — the shot clock
+   * beat you to it, or the socket dropped and reconnected around it.
+   *
+   * This MUST be answered rather than dropped. The client is holding a pending
+   * line and refusing further input until it hears something back, so silence
+   * here locks that player out of the rest of the game.
+   */
+  | "stale"
   | "bad-protocol"
   | "room-full"
   | "spectators-full"

@@ -183,6 +183,9 @@ function startGame(
     state,
     players,
     ghost: null,
+    // One device and no server, so a move is applied the instant it is made:
+    // there is never anything in flight to draw.
+    pending: null,
     ghostColor: players[0]!.color,
     doomed: [],
     costPreview: [],

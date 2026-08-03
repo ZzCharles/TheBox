@@ -59,6 +59,16 @@ const PAINT = {
     haloAlpha: 0.26,
     coreAlpha: 0.95,
     ghostAlpha: 0.28,
+    /**
+     * A line already sent and waiting on the server. Fainter than the ghost,
+     * and it breathes.
+     *
+     * These two MUST NOT look alike. A ghost means "tap again to place this";
+     * a pending line means "placed, wait". Drawing both as one faint line is
+     * what made the first playtest tap a second time and lose the turn.
+     */
+    pendingAlpha: 0.2,
+    pendingPeriodMs: 900,
   },
   box: {
     inset: 0.125,
@@ -125,8 +135,18 @@ export interface PlayerView {
 export interface BoardView {
   state: GameState;
   players: PlayerView[];
-  /** Line under a drag preview or awaiting a confirm tap. */
+  /**
+   * Line under a finger, or awaiting a confirming second tap. Its two end dots
+   * light white — that is what resolves WHICH dots you are joining when a thumb
+   * covers a quarter of the board.
+   */
   ghost: number | null;
+  /**
+   * Line already sent, waiting for the server to confirm it. Deliberately drawn
+   * unlike the ghost and with NO lit end dots: the finger has gone, and the
+   * only question left is whether the table accepted it.
+   */
+  pending: number | null;
   /** Colour for the ghost — the current player's. */
   ghostColor: string;
   /**
@@ -627,6 +647,30 @@ export function createBoardRenderer(
     ctx.restore();
   }
 
+  /**
+   * A line that has been sent and is waiting to become real.
+   *
+   * It breathes, because the one thing the player needs to know is that
+   * something is still happening. A still, faint line is indistinguishable
+   * from a ghost waiting for a second tap — and a player who reads it that way
+   * taps again, which does nothing, and concludes the game is broken.
+   */
+  function drawPending(ctx: CanvasRenderingContext2D, now: number, view: BoardView) {
+    if (view.pending === null) return;
+    const { x0, y0, x1, y1 } = lineSegment(layout, view.pending);
+    const beat = 0.5 + 0.5 * Math.sin((now * TAU) / PAINT.line.pendingPeriodMs);
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineWidth = layout.lineWidth;
+    ctx.strokeStyle = view.ghostColor;
+    ctx.globalAlpha = PAINT.line.pendingAlpha * (0.55 + 0.45 * beat);
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   return {
     get layout() {
       return layout;
@@ -678,14 +722,17 @@ export function createBoardRenderer(
       drawCostPreview(ctx, view);
       drawLines(ctx, now, view);
       drawGhost(ctx, view);
+      drawPending(ctx, now, view);
       drawDots(ctx, now, view);
       // Additive, and therefore last: the flame adds its light to a scene that
       // is already finished underneath it.
       burn.drawFlame(ctx, now, layout);
 
-      // The doomed breath and the fire are both time-driven rather than
-      // tween-driven, so they have to keep asking for frames on their own.
-      return anim.update(now) || view.doomed.length > 0 || burning;
+      // The doomed breath, the fire and the pending pulse are all time-driven
+      // rather than tween-driven, so they have to keep asking for frames.
+      return (
+        anim.update(now) || view.doomed.length > 0 || burning || view.pending !== null
+      );
     },
   };
 }

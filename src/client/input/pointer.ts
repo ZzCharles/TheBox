@@ -173,15 +173,36 @@ export function attachPointer(
     dragging = false;
   }
 
+  /**
+   * Stop iOS turning a drag into a "go back" swipe.
+   *
+   * Safari's edge-swipe navigation is a SYSTEM gesture. `touch-action: none`
+   * and `overscroll-behavior: none` do not touch it — the only thing that
+   * suppresses it is `preventDefault()` on a NON-PASSIVE `touchstart`, and
+   * listeners on document-level targets default to passive, where
+   * `preventDefault` is ignored silently.
+   *
+   * Reported from the first LAN playtest: dragging from a dot near the left of
+   * the board navigated the whole app away mid-turn. Scoped to the board
+   * element, so buttons and scrollable screens elsewhere are unaffected, and
+   * safe here because the board never scrolls — pointer events still fire
+   * normally, since this only cancels the default action.
+   */
+  function onTouchStart(e: TouchEvent) {
+    if (e.cancelable) e.preventDefault();
+  }
+
   el.addEventListener("pointerdown", onPointerDown);
   el.addEventListener("pointermove", onPointerMove);
   el.addEventListener("pointerup", onPointerUp);
   el.addEventListener("pointercancel", onPointerCancel);
+  el.addEventListener("touchstart", onTouchStart, { passive: false });
 
   return () => {
     el.removeEventListener("pointerdown", onPointerDown);
     el.removeEventListener("pointermove", onPointerMove);
     el.removeEventListener("pointerup", onPointerUp);
     el.removeEventListener("pointercancel", onPointerCancel);
+    el.removeEventListener("touchstart", onTouchStart);
   };
 }

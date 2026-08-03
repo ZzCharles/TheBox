@@ -459,13 +459,37 @@ export class GameRoom extends Server<Env> {
     lineId: number,
     turnSeq: number,
   ) {
+    /*
+     * EVERY path out of here must say something back.
+     *
+     * The client holds an optimistic "pending" line from the moment it taps and
+     * refuses further input until it hears about it, so a silent `return` here
+     * does not drop one move — it locks that player out of the rest of the
+     * game, showing them a faint line nobody else can see. That is exactly what
+     * the first LAN playtest hit, and it is why these are `fail()` and not
+     * `return`.
+     */
     const player = this.playerFor(connection, room);
-    if (!player || !room.game || room.phase !== "playing") return;
+    if (!player || !room.game || room.phase !== "playing") {
+      this.fail(connection, "stale", "That game is not running.");
+      return;
+    }
 
     const state = fromSnapshot(room.game);
 
-    // Idempotency: a retry after a flaky connection must not place two lines.
-    if (turnSeq !== state.turnSeq) return;
+    /*
+     * Idempotency: a retry after a flaky connection must not place two lines.
+     *
+     * Answering with `stale` is safe for BOTH readings of a mismatched seq. If
+     * the move was already applied, the client cleared its pending line when
+     * the broadcast arrived and a resync is a no-op. If it never applied — the
+     * shot clock expired first, or a reconnect replayed it late — the resync is
+     * the only thing that will unstick them.
+     */
+    if (turnSeq !== state.turnSeq) {
+      this.fail(connection, "stale", "Too late — the turn had already moved on.");
+      return;
+    }
 
     const index = room.players.indexOf(player);
     const result = applyMove(state, index, lineId);

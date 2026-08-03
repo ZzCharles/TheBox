@@ -58,6 +58,15 @@ import { wordmark } from "./wordmark.ts";
 
 const CLOCK_TICK_MS = 50;
 
+/**
+ * How long to hold an unconfirmed line before giving up on it.
+ *
+ * Comfortably longer than any real round trip — the deployed site measured a
+ * 28ms median — so this only ever fires when something has genuinely gone
+ * wrong, and short enough that it resolves inside a 12s turn.
+ */
+const PENDING_TIMEOUT_MS = 2500;
+
 type ViewKind = "connecting" | "lobby" | "game";
 
 export function mountRoom(root: HTMLElement, code: string): () => void {
@@ -109,7 +118,20 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         break;
 
       case "error":
-        toast(msg.message);
+        /*
+         * Retract FIRST. A pending line is a promise the server has just
+         * refused to keep, and the board refuses further input while one is
+         * outstanding — so until this runs, that player cannot move again.
+         */
+        retractPending?.();
+        if (msg.code === "stale") {
+          // Not the player's fault and not worth alarming language: the clock
+          // beat them, or the socket blinked. Ask for the truth and move on.
+          toast("Too late — that turn had passed");
+          resync();
+        } else {
+          toast(msg.message);
+        }
         if (msg.code === "bad-protocol") location.reload();
         return;
 
@@ -273,6 +295,8 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
   let onMoveRendered: ((lineId: number, claimed: number[]) => void) | null = null;
   /** Set by the game view; sets the collapsed ring alight. */
   let onShrinkRendered: ((shrink: ShrinkOutcome) => void) | null = null;
+  /** Set by the game view; drops an unconfirmed line and re-enables input. */
+  let retractPending: (() => void) | null = null;
   /** Set by the game view; drops tweens that a fresh snapshot has invalidated. */
   let resetAnimations: (() => void) | null = null;
 
@@ -286,6 +310,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       updateView = null;
       onMoveRendered = null;
       onShrinkRendered = null;
+      retractPending = null;
       resetAnimations = null;
       view = want;
       if (want === "connecting") mountConnecting();
@@ -538,11 +563,38 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     let ghost: number | null = null;
     /** Line we have sent but not yet seen echoed back. */
     let pending: number | null = null;
+    let pendingTimer = 0;
+
+    /**
+     * The last line of defence, and the reason it exists.
+     *
+     * `isMyTurn()` refuses input while a line is pending, so an unanswered move
+     * is not a lost move — it is a player who can never move again, staring at
+     * a faint line nobody else can see. The server no longer fails silently and
+     * perishable intents are no longer queued across a reconnect, but neither
+     * of those helps against a dropped packet or a bug still unfound.
+     *
+     * So: if nothing comes back, give the turn up and ask for the truth. The
+     * worst case becomes one lost turn instead of one lost player.
+     */
+    function setPending(lineId: number | null) {
+      pending = lineId;
+      window.clearTimeout(pendingTimer);
+      if (lineId === null) return;
+      pendingTimer = window.setTimeout(() => {
+        if (pending === null) return;
+        pending = null;
+        toast("That didn't reach the table — try again");
+        resync();
+        stage.requestFrame();
+      }, PENDING_TIMEOUT_MS);
+    }
 
     const boardView: BoardView = {
       state,
       players,
       ghost: null,
+      pending: null,
       ghostColor: players[myIndex]?.color ?? "#888",
       doomed: [],
       costPreview: [],
@@ -551,7 +603,11 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     function syncBoardView() {
       if (!state) return;
       boardView.state = state;
-      boardView.ghost = ghost ?? pending;
+      // Kept apart on purpose: a ghost says "tap again to place this here",
+      // a pending line says "placed, waiting". Folding them into one value
+      // made the two indistinguishable on the board.
+      boardView.ghost = ghost;
+      boardView.pending = pending;
       boardView.ghostColor = players[currentPlayer(state)]?.color ?? "#888";
       // Recomputed on state change, not per frame — the pulse itself is driven
       // by the clock inside the renderer.
@@ -593,7 +649,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       },
       onCommit(lineId) {
         if (!state || !isMyTurn()) return;
-        pending = lineId;
+        setPending(lineId);
         ghost = null;
         net.send({ t: "move", lineId, turnSeq: state.turnSeq });
         stage.requestFrame();
@@ -603,7 +659,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     // Animations fire when the SERVER confirms a move, not when we send one.
     onMoveRendered = (lineId, claimed) => {
       const now = performance.now();
-      if (pending === lineId) pending = null;
+      if (pending === lineId) setPending(null);
       renderer.animateLine(lineId, now);
       for (const box of claimed) renderer.animateBox(box, now);
 
@@ -622,11 +678,16 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       stage.requestFrame();
     };
 
+    retractPending = () => {
+      setPending(null);
+      stage.requestFrame();
+    };
+
     resetAnimations = () => {
       // After a reconnect the board may have moved on by several lines. Snap
       // every in-flight tween to its end state rather than animating history.
       renderer.reset();
-      pending = null;
+      setPending(null);
       ghost = null;
       stage.requestFrame();
     };
@@ -838,6 +899,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
 
     disposeView = () => {
       window.clearInterval(clock);
+      window.clearTimeout(pendingTimer);
       detach();
       stage.destroy();
       scoreboard.destroy();

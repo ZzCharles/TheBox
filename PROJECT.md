@@ -62,6 +62,17 @@ Two things only the real deploy revealed:
 
 ### Playtest log
 
+- **2026-08-03, 2 players, LAN, real phones (one iPhone).** Verdict: "it feels very buggy."
+  It was. Three real faults, all fixed:
+  - **Moves vanished.** A faint line appeared on the tapper's phone and nowhere else, and
+    from then on that player could not move at all. Root cause in §7 — the server answered
+    a stale move with silence, and the client blocks on an unanswered move forever.
+  - **A ghost and a pending line looked identical**, so a tap that was waiting on the server
+    read as a tap waiting to be confirmed. Players tapped again, which does nothing.
+  - **Dragging on iPhone navigated the app away**, because Safari's edge swipe is a system
+    gesture that `touch-action: none` does not suppress. See §10.2.
+  - Sound: "isn't satisfying." Deferred by agreement — the tables to turn are `SFX_SECONDS`
+    and `SFX_PEAK` in `waveforms.ts`. Nobody got far enough into a game to judge the burn.
 - **2026-07-31, 2 players, LAN, real phones.** Verdict: "it feels alright." Fixes that came
   out of it are in M6 part 1 and part 2 (screen jitter, board presets, collapse countdown,
   public wildcard badge). Still unanswered: does anyone actually buy a Wildcard, does 12s
@@ -428,6 +439,25 @@ must read `state.benched[myIndex]`, which the local replay keeps current.
 snapshot (`players.some(p => p.id === me)`). A separate `role` field was tried and removed
 at M4: two sources for one fact can disagree, and this one is already in every message.
 
+**Anything the client BLOCKS on must be answered — silence is a bug, not a no-op.**
+(Added 2026-08-03, after it ruined a playtest.) The client draws an optimistic *pending*
+line the instant you tap and then refuses further input until it hears back, because a
+second tap would be a second move. So a `return` on the server does not drop one move; it
+strands that player for the rest of the game, staring at a faint line nobody else can see.
+`onMove` therefore answers **every** path, including the stale-`turnSeq` guard, with an
+`error` — the `stale` code exists for exactly this and is safe on a duplicate retry, since
+the client will already have cleared its pending line when the original broadcast arrived.
+
+Three layers, because one was clearly not enough:
+
+1. the server never fails silently;
+2. `socket.ts` refuses to QUEUE perishable intents (`move`, `buy`, `arm`) across a
+   reconnect — a move is bound to a `turnSeq`, so replaying it seconds later is guaranteed
+   to be rejected and is never what the player meant;
+3. the client gives up on an unconfirmed line after `PENDING_TIMEOUT_MS` (2.5s), retracts
+   it and resyncs. This is the one that holds when the cause is a dropped packet or a bug
+   nobody has found yet. **Do not remove it because the first two look sufficient.**
+
 **Connection status outranks every other banner.** If the socket is down, the turn, bench
 and spectator states on screen are all potentially stale, so "Reconnecting…" wins. Getting
 this order wrong (found at M4) left disconnected spectators looking perfectly normal.
@@ -665,6 +695,19 @@ a difference nobody can see on a 6" screen).
   second commits; tapping elsewhere re-targets. The 12s clock affords this comfortably, and
   a misplaced line is far more painful than a slow turn. Player-overridable in settings.
 - `touch-action: none` on the canvas. Handle `pointerdown/move/up`, not touch events.
+- ⚠️ **`touch-action: none` does NOT stop iOS from treating a drag as "go back".** Safari's
+  edge swipe is a SYSTEM gesture; neither it nor `overscroll-behavior: none` touches it, and
+  a drag starting near the left of the board navigated the whole app away mid-turn on a
+  real iPhone (2026-08-03). The only thing that suppresses it is `preventDefault()` on a
+  **non-passive** `touchstart`, which `pointer.ts` registers on the board element — passive
+  is the default on document-level targets, and there `preventDefault` is ignored in
+  silence. Scoped to the board so nothing else on the page loses its gestures.
+- **A ghost and a pending line must never look alike.** A ghost means "tap again to place
+  this"; a pending line means "placed, waiting on the server". Both were drawn as one faint
+  line, so players tapped a second time and lost the turn. Now: the ghost keeps the white
+  finger-lit end dots, and the pending line is fainter still (11% vs 96% for a real line),
+  breathes, and lights no dots — the finger has gone, and the only open question is whether
+  the table accepted it.
 
 ### 10.3 Animation budget
 
