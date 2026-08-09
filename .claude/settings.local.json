@@ -84,7 +84,23 @@
       "Bash(npm.cmd test *)",
       "Bash(git config *)",
       "Bash(git checkout *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git -c user.name=\"rabin\" -c user.email=\"reshipal777@gmail.com\" commit -q -F -)",
+      "Bash(npm test *)",
+      "Bash(npm run *)",
+      "Bash(netstat -ano)",
+      "PowerShell(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' } | Select-Object IPAddress, InterfaceAlias, PrefixOrigin | Format-Table -AutoSize | Out-String)",
+      "Bash(curl -s -o /dev/null -w \"http://192.168.0.115:5173/  ->  HTTP %{http_code} in %{time_total}s\\\\n\" --max-time 6 http://192.168.0.115:5173/)",
+      "PowerShell(Get-NetConnectionProfile)",
+      "Bash(python -c ' *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(npx.cmd wrangler *)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} in %{time_total}s\\\\n\" https://box.charlesbobby253.workers.dev/)",
+      "Bash(curl -s -o /dev/null -w \"bundle HTTP %{http_code}\\\\n\" https://box.charlesbobby253.workers.dev/assets/index-DDokh2p6.js)",
+      "Bash(curl -s https://box.charlesbobby253.workers.dev/assets/index-DDokh2p6.js)",
+      "Bash(gh --version)",
+      "Bash(gh auth *)",
+      "Bash(git merge *)"
     ]
   }
 }
