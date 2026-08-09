@@ -57,8 +57,9 @@ Smaller things worth doing whenever they suit:
   judged it since. Turn `SFX_SECONDS` / `SFX_PEAK` in `waveforms.ts`; nothing else.
 - **The burn is 2.9s.** Nobody has yet watched it while waiting for their turn. `BURN` in
   `burn.ts` is the one table.
-- **The live site is stale.** It runs the 2026-08-02 build — no audio, no burn, none of the
-  move-loss fixes. Redeploy before any remote playtest (see below).
+- ~~The live site is stale~~ — **redeployed 2026-08-03** with everything in this file.
+  Verified on production: a room was created and looked back up, so the Worker and the
+  Durable Object are both live.
 
 ### What is verified, and what is only "compiles"
 
