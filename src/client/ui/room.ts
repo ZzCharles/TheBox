@@ -44,14 +44,20 @@ import {
 import { play } from "../audio/engine.ts";
 import { exposeDebug } from "../devtools.ts";
 import { attachPointer } from "../input/pointer.ts";
-import { clientId, ownerKey, prefs, storedName } from "../net/identity.ts";
+import { clientId, motionReduced, ownerKey, prefs, storedName } from "../net/identity.ts";
 import { connect, type Net, type NetStatus } from "../net/socket.ts";
 import {
   createBoardRenderer,
+  entranceDurationMs,
   type BoardRenderer,
   type BoardView,
   type PlayerView,
 } from "../render/boardRenderer.ts";
+import {
+  BOARD_START_OFFSET_MS,
+  playStartSequence,
+  type StartSequence,
+} from "./startSequence.ts";
 import { CONFIRM_TAP_FROM_GRID } from "../render/layout.ts";
 import { createStage, type Stage } from "../render/stage.ts";
 import { createScoreboard, type Scoreboard } from "./scoreboard.ts";
@@ -1003,6 +1009,33 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       }
     }
 
+    /*
+     * The start sequence, but ONLY for a game that is actually starting.
+     *
+     * `linesPlaced === 0` is the test, and it is doing real work: it keeps the
+     * performance away from a spectator arriving mid-game and from anyone
+     * reconnecting, both of whom mount this same view onto a board that is
+     * already half played. Ceremony there would be a lie about what is
+     * happening, and it would hide a live board behind a logo.
+     */
+    let startSeq: StartSequence | null = null;
+    const gameEl = root.querySelector<HTMLElement>(".game")!;
+    if (state.linesPlaced === 0 && state.phase === "playing" && !motionReduced()) {
+      gameEl.classList.add("entering");
+      // Armed for the future: the board stays empty until the mark has landed.
+      renderer.startEntrance(performance.now() + BOARD_START_OFFSET_MS);
+      startSeq = playStartSequence({
+        stage: gameEl,
+        boardMs: entranceDurationMs(n + 1),
+        onDone() {
+          startSeq = null;
+          gameEl.classList.remove("entering");
+          stage.requestFrame();
+        },
+      });
+      stage.requestFrame();
+    }
+
     if (import.meta.env.DEV) {
       exposeDebug({
         state: () => state,
@@ -1015,6 +1048,9 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     }
 
     disposeView = () => {
+      // Cancelling still runs the hand-off, so navigating away mid-sequence
+      // cannot leave the HUD stuck invisible behind a removed overlay.
+      startSeq?.cancel();
       window.clearInterval(clock);
       window.clearTimeout(pendingTimer);
       window.clearTimeout(nudgeTimer);

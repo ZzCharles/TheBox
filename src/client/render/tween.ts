@@ -20,6 +20,16 @@ export const easeOutBack: Easing = (t) => {
   return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
 };
 
+/**
+ * `easeOutBack` with the overshoot as a parameter, because the board roll-in
+ * was tuned to its own value (1.35) rather than the standard 1.70158 — a
+ * bouncier one made eleven rows of dots look like they were falling downstairs.
+ */
+export function easeOutBackWith(overshoot: number): Easing {
+  const c3 = overshoot + 1;
+  return (t) => 1 + c3 * (t - 1) ** 3 + overshoot * (t - 1) ** 2;
+}
+
 /** Rises to 1 then falls back to 0. For pulses that return to rest. */
 export const pulse: Easing = (t) => Math.sin(t * Math.PI);
 

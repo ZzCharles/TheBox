@@ -939,6 +939,42 @@ input:focus-visible {
   min-height: 0;
 }
 
+/* The start sequence ----------------------------------------------------- */
+
+.start-seq {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  /*
+   * Deliberately NOT `none`. The board is empty and the HUD is hidden while
+   * this runs, so a tap that fell through would place a line on a board the
+   * player cannot see, on a turn they do not know is theirs. The overlay
+   * swallows input for its 1.3s and hands over a board that is ready.
+   */
+  pointer-events: auto;
+  z-index: 5;
+}
+
+.start-mark {
+  font-size: clamp(3rem, 17vw, 5rem);
+}
+
+/*
+ * While the board assembles, everything else waits its turn.
+ *
+ * OPACITY, never `display` or `hidden`: these rows hold the board's height, and
+ * removing them would resize the canvas mid-sequence — the exact jitter the
+ * fixed-row rule exists to prevent, arriving at the worst possible moment.
+ */
+.game.entering > :not(.board-wrap):not(.start-seq) {
+  opacity: 0;
+}
+
+.game > :not(.board-wrap):not(.start-seq) {
+  transition: opacity 260ms ease;
+}
+
 .board {
   position: absolute;
   inset: 0;

@@ -2,8 +2,8 @@
 
 > **Name:** **Tiki** (was BOX; renamed 2026-08-02).
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M5 complete. M6 is done bar the set-piece animations.
-> The visual pass and the audio pass have both landed; the game has not been played since.
+> **Status:** M0–M6 complete bar a playtest. M7 (endgame shatter) is next.
+> Everything M6 promised is built: visuals, audio, the Twist burn, the start sequence.
 > **Last updated:** 2026-08-03
 
 ---
@@ -43,7 +43,7 @@ All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twis
 | Screens: landing, settings, lobby, game | ✅ Done — full colour, type and behaviour pass |
 | **Sound** | ✅ Done — seven synthesised sounds, 36 tests. `clack` is built but unused until M7. |
 | **Twist burn** | ✅ Done — fuse, ignition, spreading front, flame, ash. 2.6 ms worst frame. |
-| **Start sequence** | ❌ No Play button animation, no carpet-in |
+| **Start sequence** | ✅ Mark draws, flares, hits, shakes; board rolls in |
 | **Endgame sequence** | ❌ Winner overlay only, no shatter |
 | **PWA / installable** | ❌ Not started |
 | **Deployed** | ✅ https://box.charlesbobby253.workers.dev |
@@ -868,16 +868,41 @@ for deuteranopia separation):
 
 ### 12.1 Start
 
-1. **Play button** is an open rectangular box drawn in CSS 3D — a base plus a lid on a
-   hinge at the back edge, rotated open ~105°.
-2. Tap → lid rotates closed over **220ms** with a slight overshoot-and-settle
-   (`cubic-bezier(.36,1.6,.5,1)`). `thunk` sfx fires on contact, not on tap.
-3. **Screen shake:** 6px amplitude, 180ms, decaying, on the root element.
-4. Box scales to 1.15 and fades out over 200ms.
-5. **Carpet-in:** dot rows roll in from the top. Row `r` starts at `r × 35ms`, translating
-   from `-40px` with a small bounce, opacity 0→1, glow ramping in behind it. A 10-row board
-   fully lands in ~700ms.
-6. Grid lines *do not* draw — only dots. The empty board should feel like an invitation.
+**The box-with-a-lid is gone** (revised 2026-08-03). The design pass superseded it with the
+Tiki mark — handover §0 — and the old prototype survives only as the reference for the shake
+and roll-in timings. What ships is `src/client/ui/startSequence.ts`, and the point of it is
+that **the logo performs the game's own gesture**: the stem of the first `i` draws downward
+with exactly the duration and easing of placing a line, then the mark lands hard enough to
+shake the dots loose, and they fall into place as the board.
+
+| Time | Beat |
+|---|---|
+| 120ms | The stem draws down, 140ms, on the line-placing curve. |
+| 250ms | The mark flares, a 90ms box-shadow ramp. |
+| **270ms** | **Impact.** Screen shake begins: 6px x / 4.2px y over 180ms, quadratic decay, `sin 7.3` / `cos 5.1` so the axes never line up into a diagonal wobble. `thunk` fires **here, on contact, never on the tap**. |
+| 380ms | The mark swells to 1.09 and fades out over 200ms, uncovering the board. |
+| 440ms | The dots begin rolling in: rows from the top, 35ms apart, each falling one cell with an easeOutBack overshoot of 1.35 over 380ms, fading in over the first 55% of that. |
+| +240ms | After the last row lands, the HUD arrives and play begins. |
+
+Grid lines *do not* draw — only dots. The empty board should feel like an invitation.
+
+Three things that are load-bearing rather than incidental:
+
+- ⚠️ **The renderer is ARMED with a future start time, not told when to go.**
+  `startEntrance(now + BOARD_START_OFFSET_MS)` — from that call until the moment arrives the
+  board draws *nothing*, which is what gives the mark an empty table to land on. `entranceAge`
+  returns `null` for "not scheduled" and a **negative number** for "armed but waiting"; those
+  are different states, and conflating them into one `-1` sentinel drew the whole board
+  through the entire performance.
+- **`linesPlaced === 0` gates the whole thing.** It keeps the ceremony away from a spectator
+  arriving mid-game and from anyone reconnecting, both of whom mount the same view onto a
+  board that is already half played.
+- **The overlay swallows input** (`pointer-events: auto`) for its 1.3s. The board is empty
+  and the HUD is hidden, so a tap falling through would place a line on a board the player
+  cannot see, on a turn they do not know is theirs.
+
+The HUD is hidden with **opacity, never `display`** — those rows hold the board's height, and
+removing them would resize the canvas mid-sequence (§10.0) at the worst possible moment.
 
 **This sequence is also where Web Audio gets unlocked** (first user gesture). Convenient
 and non-negotiable on iOS. *Until it is built, the first gesture anywhere in the app does
@@ -1064,19 +1089,20 @@ M7. It is here because it is part of the vocabulary, not because anything plays 
       - [x] The Twist burn — fuse, ignition, spreading front, flame, ash, vignette
             (2026-08-03). Fixed a latent crash on the way: a square claimed by the
             same move that collapsed its ring pulsed as `players[DEAD]`.
-      - [ ] Play button with the hinged lid + screen shake
-      - [ ] Carpet-in dot animation
-      - [ ] Visual token pass across every screen
-- [ ] **M6 remainder — in this order:**
+      - [x] Start sequence: the mark draws, flares, hits, shakes, and the board
+            rolls in row by row (2026-08-03). The hinged-lid Play button was
+            superseded by the design pass — see §12.1.
+      - [x] Visual token pass across every screen — landed with the design pass
+            above; this line was a duplicate of it.
+- [ ] **M6 remainder — one thing left, and it is not code:**
       1. **Playtest what exists.** It has not been played since the visual pass, has never
          been heard at all, and nobody has watched the board burn on a phone. Tap accuracy
          on the bigger boards, whether Small at ~14 min is right, whether the grown initials
          read, whether the Twist floor makes the endgame better or duller, whether the
          sounds are the right sounds at the right volumes, and whether ~2.9s of fire is
          the right length when you are waiting to take your turn. The tables to turn are
-         `SFX_SECONDS`/`SFX_PEAK` in `waveforms.ts` and `BURN` in `burn.ts`.
-      2. **Start sequence** (`box-start-sequence.html` holds the timings). `thunk` is built
-         and waiting for the lid. The last unbuilt piece of M6.
+         `SFX_SECONDS`/`SFX_PEAK` in `waveforms.ts`, `BURN` in `burn.ts`, and the timing
+         table in `startSequence.ts`.
 - [ ] **M7 — Endgame sequence.** Crack, flight, clacks, count-up, victory. `clack` and
       `fanfare` already exist; `fanfare` fires on the winner overlay today and should move
       to step 6 of §12.3 when the sequence lands.

@@ -33,7 +33,7 @@ import {
   lineSegment,
   type Layout,
 } from "./layout.ts";
-import { Animator, easeOutCubic } from "./tween.ts";
+import { Animator, easeOutBackWith, easeOutCubic } from "./tween.ts";
 
 /**
  * Board painting values, tuned in `design/tiki-board.html`.
@@ -115,6 +115,39 @@ const PAINT = {
   },
 } as const;
 
+/**
+ * The board rolling in at the start of a game. Values from `tiki-ui.html`.
+ *
+ * Rows arrive from the top, one after another, and the empty board is the
+ * invitation — §12.1: only dots, never the grid.
+ */
+const ENTRANCE = {
+  /** Delay per dot row, top to bottom. */
+  staggerMs: 35,
+  fallMs: 380,
+  /**
+   * The prototype's 40px, expressed as a fraction of the gap.
+   *
+   * Everything on this board is a fraction of the dot gap and never a pixel
+   * (§10.1): a fixed 40px drop is a gentle nudge on Small and half the board on
+   * Grand. At the prototype's own ~40px gap this is the same number it tuned.
+   */
+  dropCells: 1,
+  bounce: 1.35,
+  /** The fade finishes well before the fall does, so dots land already lit. */
+  fadeFraction: 0.55,
+  fromScale: 0.55,
+  /** The overshoot is capped for scale only — a dot must not balloon. */
+  maxScale: 1.15,
+} as const;
+
+const entranceEase = easeOutBackWith(ENTRANCE.bounce);
+
+/** How long a whole roll-in takes, for a board with this many dot rows. */
+export function entranceDurationMs(dotRows: number): number {
+  return (dotRows - 1) * ENTRANCE.staggerMs + ENTRANCE.fallMs;
+}
+
 /** Claim pulse: grow to 1.06 by this point, then settle back to 1. */
 const CLAIM_PEAK = 0.42;
 /** The initial only starts fading in once the square has mostly arrived. */
@@ -177,6 +210,18 @@ export interface BoardRenderer {
     shrink: { removedBoxes: number[]; harvested: Array<{ box: number; owner: number }> },
     now: number,
   ): void;
+  /**
+   * Roll the dots in, row by row, for the start of a game. Only dots draw
+   * while this runs — an empty board should read as an invitation.
+   *
+   * @param startAt When the first row should land, which may be in the FUTURE.
+   *   Scheduling it ahead is the point: from this call until that moment the
+   *   board draws nothing at all, so the mark performs against an empty table
+   *   rather than against a board that is already sitting there.
+   */
+  startEntrance(startAt: number): void;
+  /** True while the roll-in is still arriving. */
+  readonly entering: boolean;
   reset(): void;
   /** Returns true while animations are still running. */
   draw(ctx: CanvasRenderingContext2D, now: number, view: BoardView): boolean;
@@ -197,6 +242,28 @@ export function createBoardRenderer(
   let lastFont = "";
   /** Previous frame time, for the particle system's per-frame emission budget. */
   let lastNow = 0;
+  /** When the roll-in began, or 0 when no entrance is running. */
+  let entranceStart = 0;
+
+  /**
+   * Milliseconds into the roll-in, or `null` when none is scheduled.
+   *
+   * `null` rather than a negative sentinel, because a negative AGE is a real
+   * and meaningful state: the entrance is armed but has not begun, every row's
+   * own age is negative too, and the dot loop therefore skips all of them and
+   * leaves the board empty. That is what gives the mark a bare table to land
+   * on. Conflating "not scheduled" with "not started yet" drew the whole board
+   * through the entire performance.
+   */
+  function entranceAge(now: number): number | null {
+    if (entranceStart === 0) return null;
+    const age = now - entranceStart;
+    if (age >= entranceDurationMs(layout.n + 1)) {
+      entranceStart = 0;
+      return null;
+    }
+    return age;
+  }
 
   /**
    * The dark closing in around the live area.
@@ -259,8 +326,32 @@ export function createBoardRenderer(
     const ringDoomed = view.doomed.length > 0;
     const beat = 0.5 + 0.5 * Math.sin((now * TAU) / PAINT.doomed.periodMs);
     const doomedAlpha = PAINT.doomed.base + PAINT.doomed.swing * beat;
+    const age = entranceAge(now);
 
     for (let r = 0; r <= layout.n; r++) {
+      /*
+       * The roll-in: each row falls from above on its own delay, overshooting
+       * slightly as it lands. A row that has not started yet draws nothing at
+       * all, which is what makes the board assemble rather than fade up.
+       */
+      let dy = 0;
+      let entranceAlpha = 1;
+      let entranceScale = 1;
+      if (age !== null) {
+        // Negative for a row that has not been reached yet — and for EVERY row
+        // while the entrance is armed but waiting. Both mean "draw nothing".
+        const rowAge = age - r * ENTRANCE.staggerMs;
+        if (rowAge < 0) continue;
+        const p = Math.min(rowAge / ENTRANCE.fallMs, 1);
+        const e = entranceEase(p);
+        dy = -layout.cell * ENTRANCE.dropCells * (1 - e);
+        entranceAlpha = easeOutCubic(
+          Math.min(rowAge / (ENTRANCE.fallMs * ENTRANCE.fadeFraction), 1),
+        );
+        entranceScale =
+          ENTRANCE.fromScale + (1 - ENTRANCE.fromScale) * Math.min(e, ENTRANCE.maxScale);
+      }
+
       for (let c = 0; c <= layout.n; c++) {
         // A dot on a burning ring is the fire's to draw: the state already has
         // it outside the live area, so this loop would render it dead while it
@@ -268,22 +359,20 @@ export function createBoardRenderer(
         if (burn.ownsDot(r, c)) continue;
 
         const x = dotX(layout, c);
-        const y = dotY(layout, r);
+        const y = dotY(layout, r) + dy;
         const inside =
           hasLiveArea && r >= r0 && r <= r1 + 1 && c >= c0 && c <= c1 + 1;
 
         if (!inside) {
-          blit(ctx, dots.dead, x, y);
+          blit(ctx, dots.dead, x, y, entranceScale, entranceAlpha);
           continue;
         }
         const onRing =
           ringDoomed && (r === r0 || r === r1 + 1 || c === c0 || c === c1 + 1);
         if (onRing) {
-          ctx.globalAlpha = doomedAlpha;
-          blit(ctx, dots.doomed, x, y);
-          ctx.globalAlpha = 1;
+          blit(ctx, dots.doomed, x, y, entranceScale, doomedAlpha * entranceAlpha);
         } else {
-          blit(ctx, dots.live, x, y);
+          blit(ctx, dots.live, x, y, entranceScale, entranceAlpha);
         }
       }
     }
@@ -692,6 +781,15 @@ export function createBoardRenderer(
       anim.start(`box:${boxId}`, now, BOX_CLAIM_MS, easeOutCubic);
     },
 
+    startEntrance(startAt) {
+      if (motionReduced()) return;
+      entranceStart = startAt;
+    },
+
+    get entering() {
+      return entranceStart !== 0;
+    },
+
     animateBurn(shrink, now) {
       // Reduced motion keeps the state change and drops the sequence: the ring
       // is already ash in `state`, so doing nothing here IS the burn arriving
@@ -705,6 +803,8 @@ export function createBoardRenderer(
       // A fresh snapshot describes a board where this fire has already been out
       // for a while. Finishing it would be animating history.
       burn.reset();
+      // Likewise the roll-in: a resync means the game is already under way.
+      entranceStart = 0;
     },
 
     draw(ctx, now, view) {
@@ -717,12 +817,21 @@ export function createBoardRenderer(
       // Cleared in CSS pixels — the context is already DPR-scaled.
       ctx.clearRect(0, 0, viewW, viewH);
 
-      drawVignette(ctx, now, view);
-      drawBoxes(ctx, now, view);
-      drawCostPreview(ctx, view);
-      drawLines(ctx, now, view);
-      drawGhost(ctx, view);
-      drawPending(ctx, now, view);
+      /*
+       * §12.1: "Grid lines do not draw — only dots. The empty board should feel
+       * like an invitation." A fresh board has none of these anyway; the guard
+       * is what keeps that true if an entrance is ever replayed over a board
+       * that is not empty.
+       */
+      const rolling = entranceStart !== 0;
+      if (!rolling) {
+        drawVignette(ctx, now, view);
+        drawBoxes(ctx, now, view);
+        drawCostPreview(ctx, view);
+        drawLines(ctx, now, view);
+        drawGhost(ctx, view);
+        drawPending(ctx, now, view);
+      }
       drawDots(ctx, now, view);
       // Additive, and therefore last: the flame adds its light to a scene that
       // is already finished underneath it.
@@ -731,7 +840,11 @@ export function createBoardRenderer(
       // The doomed breath, the fire and the pending pulse are all time-driven
       // rather than tween-driven, so they have to keep asking for frames.
       return (
-        anim.update(now) || view.doomed.length > 0 || burning || view.pending !== null
+        anim.update(now) ||
+        view.doomed.length > 0 ||
+        burning ||
+        view.pending !== null ||
+        entranceStart !== 0
       );
     },
   };
@@ -812,9 +925,29 @@ function initialFont(cell: number, length: number): string {
   return `800 ${Math.round(cell * scale)}px "Archivo", ui-sans-serif, system-ui, sans-serif`;
 }
 
-function blit(ctx: CanvasRenderingContext2D, sprite: Sprite, x: number, y: number) {
-  const half = sprite.cssSize / 2;
-  ctx.drawImage(sprite.canvas, x - half, y - half, sprite.cssSize, sprite.cssSize);
+/**
+ * Stamp a prerendered dot. `scale` and `alpha` exist for the roll-in, which
+ * needs the same sprite at a growing size and a rising opacity; both default to
+ * the identity so every other caller reads as before.
+ */
+function blit(
+  ctx: CanvasRenderingContext2D,
+  sprite: Sprite,
+  x: number,
+  y: number,
+  scale = 1,
+  alpha = 1,
+) {
+  const size = sprite.cssSize * scale;
+  const half = size / 2;
+  if (alpha >= 1) {
+    ctx.drawImage(sprite.canvas, x - half, y - half, size, size);
+    return;
+  }
+  if (alpha <= 0) return;
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(sprite.canvas, x - half, y - half, size, size);
+  ctx.globalAlpha = 1;
 }
 
 // ----------------------------------------------------------------- colour ---
