@@ -98,26 +98,25 @@ alarm and a wasted detour.
 
 ### ⚠️ Where the code actually is
 
-**All of the work lives on the branch `design-pass`, which is 6 commits ahead of `main`.**
-`main` still sits at `03626dc`, before the rename to Tiki. A new chat that starts from
-`main` will find no Tiki, no audio, no burn, no start sequence and none of the playtest
-fixes, and will be very confused.
-
-```bash
-git log --oneline main..design-pass
-```
-
-**There is no git remote.** Nothing is pushed anywhere; this entire project exists on one
-machine and in one working copy. Merging `design-pass` into `main` and adding a remote are
-both worth doing and neither has been done — they are decisions for the owner, not
-housekeeping to be assumed.
+**`main` is the truth again** (2026-08-10). It used to sit 8 commits behind on `03626dc`,
+before the rename to Tiki, so a chat starting from `main` found no Tiki, no audio, no burn
+and none of the playtest fixes. `design-pass` was fast-forwarded into `main`; the two are
+now identical and `design-pass` is kept only as a label on the same commit. **Work on
+`main`.**
 
 ### Deploying
 
-Wrangler **4.115.0** is installed and logged in as `charlesbobby253@gmail.com`
-(account `cfd013ef5b7afa9ef3320e59d02113a9`), so `npm run deploy` works from this machine.
-It builds and ships client + Worker in ~30s. Remember the first ~30 seconds after a deploy
-can hit the old Worker — see the note in §"Where the project stands".
+Wrangler **4.115.0** is installed and already logged in on the owner's machine, so
+`npm run deploy` works there. It builds and ships client + Worker in ~30s. Remember the
+first ~30 seconds after a deploy can hit the old Worker — see the note in
+§"Where the project stands".
+
+```bash
+npx.cmd wrangler whoami   # which account is logged in, and its id
+```
+
+*(This repo is public, so the account email and id live in `wrangler whoami` rather than
+in the file. Neither is a credential, but neither needs indexing either.)*
 
 ---
 
