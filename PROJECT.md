@@ -28,6 +28,98 @@ is in `design/`:
 
 This file stays the engineering reference.
 
+---
+
+## 0.1 START HERE — handoff, 2026-08-03
+
+**The game is feature-complete through M6 and has never been seen working by a human being
+end to end.** Everything below was verified by instrumentation, not by eyes. That is the
+single most important thing to know before you change anything.
+
+### The next step, in one line
+
+**Playtest on real phones**, then build **M7, the endgame shatter**. Do not start M7 blind:
+three of this project's best decisions came out of playtests, and four separate bugs were
+found in the last one.
+
+### Roadmap
+
+| | State | What it means |
+|---|---|---|
+| M0–M5 | ✅ | Toolchain, rules engine, renderer, networking, resilience, Twist mode. |
+| M6 | ✅ **bar a playtest** | Visuals, audio, the Twist burn, the start sequence. All built. None watched. |
+| **M7** | ⬅ **next code** | Endgame shatter: crack, every box flies to its owner's panel, count-up, victory. `clack` and `fanfare` are already built and unused, waiting for exactly this. Spec in §12.3. |
+| M8 | after that | PWA: manifest, service worker, icons, offline shell, custom domain. Then ship. |
+
+Smaller things worth doing whenever they suit:
+
+- **Sound needs tuning.** Verdict from the playtest was "isn't satisfying", and nobody has
+  judged it since. Turn `SFX_SECONDS` / `SFX_PEAK` in `waveforms.ts`; nothing else.
+- **The burn is 2.9s.** Nobody has yet watched it while waiting for their turn. `BURN` in
+  `burn.ts` is the one table.
+- **The live site is stale.** It runs the 2026-08-02 build — no audio, no burn, none of the
+  move-loss fixes. Redeploy before any remote playtest (see below).
+
+### What is verified, and what is only "compiles"
+
+Verified by instrumentation, in a browser, against real game state: the audio engine and
+every waveform, the burn's full timeline, the pending-move recovery, the flame badge, the
+Wildcard nudge, the start sequence, and every guard around them (reduced motion, rejoining
+mid-game, spectators).
+
+**Never seen by a human:** all of it, visually. No screenshot exists of the burn, the flame
+badge, the nudge or the start sequence. Timing, geometry, colour and state are confirmed;
+*how it looks and feels* is entirely unconfirmed.
+
+### ⚠️ Testing gotchas that cost real time this session
+
+Read these before writing a single browser probe. Each one produced a convincing false
+alarm and a wasted detour.
+
+1. **The preview pane does not composite.** `document.visibilityState` is `"hidden"` and
+   **`requestAnimationFrame` never fires**, so the render loop is dead and CSS animations
+   freeze at their first keyframe. Screenshots fail outright.
+   - Drive frames by hand with `window.__box.drawNow()` (dev builds only — this is exactly
+     why it exists, §3).
+   - **Never trust `getComputedStyle` during an entrance animation.** A frozen `from` frame
+     reports `opacity: 0` and `scale: 0.6`, which looks precisely like a broken element.
+2. **`getImageData` returns UN-premultiplied RGBA.** The board canvas is transparent-backed,
+   so a 20%-alpha line keeps its full RGB and carries the transparency in the **alpha
+   channel**. Read `data[3]`. Judging opacity from RGB says a faint line is fully opaque.
+3. **The 12s shot clock expires between tool round-trips**, benching players and pausing the
+   match, which then makes every later reading nonsense. Do a whole multi-step scenario
+   **inside one script** with `await sleep()`, and read the result out afterwards.
+4. **A second player is easiest as a raw WebSocket.** `new WebSocket('ws://' + location.host
+   + '/parties/game-room/CODE')`, then send `hello`, then `move`. This is how M3 was
+   verified and it sidesteps the whole UI.
+5. **Confirm-tap is ON from 10×10 up** (`CONFIRM_TAP_FROM_GRID`). Synthetic taps on Large or
+   Grand need *two* taps per line, or nothing happens and it looks like input is broken.
+
+### ⚠️ Where the code actually is
+
+**All of the work lives on the branch `design-pass`, which is 6 commits ahead of `main`.**
+`main` still sits at `03626dc`, before the rename to Tiki. A new chat that starts from
+`main` will find no Tiki, no audio, no burn, no start sequence and none of the playtest
+fixes, and will be very confused.
+
+```bash
+git log --oneline main..design-pass
+```
+
+**There is no git remote.** Nothing is pushed anywhere; this entire project exists on one
+machine and in one working copy. Merging `design-pass` into `main` and adding a remote are
+both worth doing and neither has been done — they are decisions for the owner, not
+housekeeping to be assumed.
+
+### Deploying
+
+Wrangler **4.115.0** is installed and logged in as `charlesbobby253@gmail.com`
+(account `cfd013ef5b7afa9ef3320e59d02113a9`), so `npm run deploy` works from this machine.
+It builds and ships client + Worker in ~30s. Remember the first ~30 seconds after a deploy
+can hit the old Worker — see the note in §"Where the project stands".
+
+---
+
 ### Where the project stands
 
 **The game is finished, playable, looks the way it was designed to, and now makes a noise.**
@@ -133,7 +225,8 @@ Two rulesets, chosen at lobby creation:
 
 - ✅ **Node v24.18.0** at `C:\Program Files\nodejs\` (installed 2026-07-30).
 - ✅ `git init` done, branch `main`.
-- [ ] Free Cloudflare account, for `wrangler login` and deploy. Local dev works without it.
+- ✅ **Cloudflare account, wrangler logged in** (2026-08-03). `npx.cmd wrangler whoami`
+  confirms it; `npm run deploy` ships from this machine.
 
 In dev builds only, `window.__box` exposes `{ state(), layout(), drawNow() }`. `drawNow()`
 exists because `requestAnimationFrame` never fires in a hidden tab, which otherwise makes
