@@ -2,9 +2,9 @@
 
 > **Name:** **Tiki** (was BOX; renamed 2026-08-02).
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M7 built, deployed and played. **M7.5 in progress — the timeout pass
-> exploit and the endgame clock are fixed, deployed, and waiting on a playtest.**
-> **Last updated:** 2026-08-10
+> **Status:** M0–M7.5 built, deployed and played. **M8 (PWA) is the last milestone; the
+> icons are the only real blocker. Live, `main` and `origin/main` are all level.**
+> **Last updated:** 2026-08-11
 
 ---
 
@@ -30,86 +30,84 @@ This file stays the engineering reference.
 
 ---
 
-## 0.1 START HERE — handoff, 2026-08-10
+## 0.1 START HERE — handoff, 2026-08-11
 
-**The game is feature-complete through M7 and has never been seen working by a human being
-end to end.** Everything below was verified by instrumentation, not by eyes. That is the
-single most important thing to know before you change anything. The debt has grown, not
-shrunk: there are now two set-piece animations nobody has watched.
+**M7.5 is done bar one design decision, and everything is deployed.** The live site, `main`
+and `origin/main` are all level for the first time in the project's history — there is no
+hidden state, nothing held back, nothing uncommitted. 180 tests pass.
+
+*(This session ran from the 2026-08-10 playtest past midnight, so the commits are dated
+2026-08-11 while the work is described throughout as 2026-08-10. Same session.)*
 
 ### The next step, in one line
 
-**Play some games.** Everything below is deployed and the live site is level with `main` for
-the first time since the playtests. Two questions are waiting on real play, not on code:
-whether the doubled endgame clock feels right (§16 #6, which decides the parked off-switch),
-and whether anyone can still find a way to refuse a turn.
+**M8 — the PWA.** It is the last milestone, the game itself is finished, and **the icons are
+the only real blocker** (§14). Everything else in M8 is a day of plumbing.
 
-**Two more shipped the same day, in a second deploy:** the collapse warning finally hides
-(§10.6 — it never did, so it was on screen all game and meant nothing), and `tick` and
-`click` were recut to a graphite drag and a padlock latch (§13.1). The Wildcard half of item
-3 is a design question, not a bug, and wants a verdict from play rather than more code.
+Before that, two things are waiting on the owner PLAYING rather than on code. Neither blocks
+M8; both are one-line changes when the answer arrives:
 
-✅ **Deployed 2026-08-10 twice.** First `f1d86651`: the timeout auto-move, the doubled
-endgame clock, and confirm-tap (held back on purpose to ship with them) — verified on the
-deployed site, not just dev, in a real two-player room where the clock ran out, a line
-appeared, and the second miss parked the player on both clients. Then `a8660bb2`: the
-`[hidden]` fix and the two recut sounds — verified by probing the live stylesheet, where a
-hidden `.burn-warning` now collapses to 0×0 instead of rendering at 44×44.
+| Question | Where | The one line |
+|---|---|---|
+| Does the doubled endgame clock feel right? Decides whether the parked host off-switch is ever needed. | §16 #6 | `ENDGAME_CLOCK_*` |
+| Do the streak tiers fire too often? `Nice` at 4 boxes may be routine. | §12.4.1 | `STREAK_TIERS` |
+| Is the Wildcard reachable enough to matter? Ten boxes cannot be banked until ~turn 93 of 132. | §10.6 | `WILDCARD_COST` |
 
-What landed 2026-08-10, and what it means for anything you touch next:
+### What shipped 2026-08-10, in four deploys
 
-- A shot clock running out now **places a line** rather than passing. It arrives on the wire
-  as a `move` with `auto: true`, so `skip` effectively means a disconnect now.
-- An auto-move **advances** the miss counter instead of clearing it, which is what keeps
-  parking (§6.4) working. Two consecutive timeouts still park you.
-- `turnSecondsFor` **doubles** past 60% of the board, so nothing may assume 12 and 6 — ask
-  it. `PROTOCOL_VERSION` is 4; older clients are told to refresh.
+| Version | Carried |
+|---|---|
+| `f1d86651` | Timeout auto-move (§6.3.1), doubled endgame clock (§6.3.2), confirm-tap |
+| `a8660bb2` | The `[hidden]` fix (§10.6), `tick` and `click` recut (§13.1) |
+| `2d2bb6e1` | Board size in hot seat |
+| `6b38234a` | Streak callouts (§12.4.1) — **current** |
 
-⚠️ It has been watched working, in dev and on the deployed site — but it has still never
-been **played** by people trying to game it. The exploit was found by a player, not by a
-test, and that is the standard the fix has yet to meet.
+### Five things that will bite you if you do not know them
 
-🅿️ **The host's clock off-switch is parked, deliberately.** Owner is sitting a few games on
-the doubled endgame clock first, to find out whether an off switch is even wanted. §16 #6
-has what to watch for. Do not build it on spec, and do not read it as an oversight.
+1. **A shot clock running out PLACES A LINE.** It arrives as a `move` with `auto: true`, so
+   `skip` now effectively means a disconnect. §6.3.1.
+2. **An auto-move ADVANCES the miss counter** instead of clearing it. Get this wrong and
+   `missed` never reaches two, nobody is ever parked again, and §6.4 silently stops working.
+3. **`turnSecondsFor` doubles past 60% of the board.** Nothing may assume 12 and 6 — ask it.
+   A hardcoded 12 in `clockFraction` is exactly how the countdown ring broke once already.
+4. **Setting `display` on a component used to break `hidden` for it.** `base.css` now carries
+   a global `[hidden] { display: none !important }`. Do not remove it; §10.6 is the story.
+5. **`PROTOCOL_VERSION` is 4.** Bump it whenever a wire type changes shape; mismatched
+   clients are told to refresh.
 
-The game was properly played on the deployed build on 2026-08-10, twice. What came back:
+### How to verify a deploy, learned the hard way
 
-- ✅ **Settled.** Pacing and interface are fine — the 4.7s shatter and 2.9s burn can stop
-  being tuned for length. Streak wording settled (§12.4).
-- 🔴 **Correctness.** The pass exploit — now fixed, above. Twist's two mechanics still
-  unfindable after two sessions (§16 #5). A double-tap complaint that is either confirm-tap
-  being undisclosed or a real pending-line bug — establish which first (§10.2).
-- 💡 **Feel.** Sound "not good enough" with specifics; the Wildcard is clunky and wants to
-  be one glowing wand; hide the running score so M7's count-up becomes the reveal.
+`npm.cmd run deploy`, then **confirm the served bundle actually changed** — the success
+message prints before the new Worker has propagated. Three traps, all hit today:
 
-The ordered list is **M7.5 in §15**. Everything is written up in the playtest log with the
-reasoning, including two places where the owner's suggested fix is worse than the problem.
+- the first request after a deploy can return the **SPA fallback HTML** instead of the asset
+  (a 992-byte "JS file" is this). Retry; it settles in ~30s;
+- `grep -c` on minified JS is useless — it counts *lines*, and there is one. Use
+  `grep -o … | wc -l`;
+- **an already-open tab will not pick up a deploy from a hash change.** Hard-reload it, or
+  you will verify the previous version and believe it.
+
+Do not use the browser pane to measure anything mid-animation: **CSS animations and
+`requestAnimationFrame` do not advance while the pane is hidden**, so you read the frozen
+first frame. Two "the element does not fit" results today were a transform stuck at 2.1x.
 
 ### Roadmap
 
 | | State | What it means |
 |---|---|---|
 | M0–M5 | ✅ | Toolchain, rules engine, renderer, networking, resilience, Twist mode. |
-| M6 | ✅ **bar a playtest** | Visuals, audio, the Twist burn, the start sequence. All built. None watched. |
-| M7 | ✅ | Endgame shatter: crack, every box flies to its owner's panel, count-up, crown. Played 2026-08-10; the pacing came back fine. §12.3. |
-| **M7.5** | ⬅ **in progress** | What the 2026-08-10 playtest asked for. Done and deployed: the timeout auto-move, the endgame clock, the collapse warning, both sounds. Left: the Wildcard (needs a play verdict, not code) and streak callouts. §15. |
-| M8 | after that | PWA: manifest, service worker, icons, offline shell, custom domain. Then ship. |
+| M6 | ✅ | Visuals, audio, the Twist burn, the start sequence. |
+| M7 | ✅ | Endgame shatter: crack, every box flies to its owner's panel, count-up, crown. Played 2026-08-10; pacing came back fine. §12.3. |
+| **M7.5** | ✅ **bar the Wildcard** | Six of nine done and deployed. Everything left — items 3, 6 and 7 — is the Wildcard, and it is one design decision rather than three jobs. §15. |
+| **M8** | ⬅ **next** | PWA: manifest, service worker, icons, offline shell, custom domain. Then ship. **Icons are the critical path.** |
 
 Smaller things worth doing whenever they suit:
 
-- **Sound needs tuning.** Verdict from the playtest was "isn't satisfying", and nobody has
-  judged it since. Turn `SFX_SECONDS` / `SFX_PEAK` in `waveforms.ts`; nothing else.
-- **The burn is 2.9s.** Nobody has yet watched it while waiting for their turn. `BURN` in
-  `burn.ts` is the one table.
-- **The shatter is ~4.7s from last box to rematch screen**, of which 900ms is the crown
-  sitting on the scoreboard before the result covers it. Nobody has yet waited through it.
-  `SHATTER` in `shatter.ts` is the one table.
-- ~~The live site is stale~~ — **redeployed 2026-08-10 with M7**. Verified on production:
-  the served bundle is `index-Cd9gbj-9.js` and contains the shatter and the `crack` sound,
-  and a room was created and looked back up, so the Worker and the Durable Object are both
-  live. **Check this before every playtest** — the site was a week stale going into this
-  one, which would have made the endgame untestable without anyone noticing why.
+- **The burn is 2.9s** and **the shatter ~4.7s.** Both were played on 2026-08-10 and came
+  back fine, so they can stop being tuned for length. `BURN` in `burn.ts` and `SHATTER` in
+  `shatter.ts` are the tables if that ever changes.
+- **Check the live site is current before every playtest.** It was a week stale going into
+  one already, which would have made the endgame untestable without anyone noticing why.
 
 ### What is verified, and what is only "compiles"
 
@@ -177,6 +175,25 @@ but one disk. Push as you go; the Cloudflare deploy is a built artifact and back
 — check it stays that way. The account email and id deliberately do NOT appear in this file;
 `npx.cmd wrangler whoami` is where they live.
 
+**Git identity — read this before your first commit.** `user.email` is now set GLOBALLY to
+the owner's usual address, so commits just work. It was not always: for most of this
+project's life no identity was configured at all, and an earlier session worked around that
+by passing `git -c user.email=…` inline on every commit, using the address it found in its
+own session context. The result is **30 commits authored by an address the owner does not
+use for this project**, and `.claude/settings.local.json` carried it as file content into a
+public repo until it was untracked on 2026-08-11.
+
+Two lessons, both cheap:
+
+- **`git log` is not evidence of intent.** Reading the identity off previous commits repeats
+  whatever mistake made them. Check `wrangler whoami`, the remote, or ask.
+- **`.claude/settings.local.json` is gitignored now.** It is per-machine permission state,
+  it rewrites itself constantly, and it records command lines. Leave it untracked.
+
+The old commits were left alone deliberately: rewriting them means a force-push over public
+history, which is the owner's call and not worth doing casually. Nothing is broken by the
+mixture — git does not care, and neither does anything else.
+
 ### Deploying
 
 Wrangler **4.115.0** is installed and already logged in on the owner's machine, so
@@ -197,7 +214,7 @@ in the file. Neither is a credential, but neither needs indexing either.)*
 
 **The game is finished, playable, looks the way it was designed to, and now makes a noise.**
 All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twist mode work.
-180 tests pass. What remains is a playtest, then shipping.
+180 tests pass. What remains is M8 — making it installable — and then shipping.
 
 | Area | State |
 |---|---|
@@ -213,13 +230,13 @@ All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twis
 | **PWA / installable** | ❌ Not started |
 | **Deployed** | ✅ https://box.charlesbobby253.workers.dev |
 
-**Live since 2026-07-31. Redeployed 2026-08-10 with M7, then twice more the same day**: the
-timeout auto-move, endgame clock and confirm-tap (`f1d86651`), then the `[hidden]` fix and
-the two recut sounds (`a8660bb2`, current). Verified against the deployed site, not just
-dev: room creation, code lookup, two WebSocket clients joining, a move propagating to both,
-and a **28 ms median round-trip**; for the auto-move, a live room left to time out — line
-placed, both clients in step, second miss parking the player; for the `[hidden]` fix, a
-probe of the live stylesheet. Redeploy with `npm.cmd run deploy`
+**Live since 2026-07-31. Redeployed 2026-08-10 with M7, then four more times the same day**
+— the deploy table is in §0.1; the current version is **`6b38234a`**. Verified against the
+deployed site, not just dev: room creation, code lookup, two WebSocket clients joining, a
+move propagating to both, and a **28 ms median round-trip**; for the auto-move, a live room
+left to time out — line placed, both clients in step, second miss parking the player; for
+the `[hidden]` fix, a probe of the live stylesheet; for the sounds, the synthesis constants
+read back out of the served bundle. Redeploy with `npm.cmd run deploy`
 (~30 seconds), then confirm the served bundle actually changed — the success message is
 printed before the new Worker has finished propagating.
 
@@ -1462,7 +1479,7 @@ the screen that says who won.
 
 ---
 
-### 12.4 Streak callouts — requested 2026-08-10, NOT BUILT
+### 12.4 Streak callouts — requested 2026-08-10, BUILT 2026-08-10 (§12.4.1)
 
 A chain is already the most exciting thing that happens in this game and currently it gets
 a small "+1 GO AGAIN" flourish (§12.2). The ask is to make a *big* chain an event, the way
@@ -1757,15 +1774,10 @@ have passed the sound that failed, which is the entire point of writing it.
             superseded by the design pass — see §12.1.
       - [x] Visual token pass across every screen — landed with the design pass
             above; this line was a duplicate of it.
-- [ ] **M6 remainder — one thing left, and it is not code:**
-      1. **Playtest what exists.** It has not been played since the visual pass, has never
-         been heard at all, and nobody has watched the board burn on a phone. Tap accuracy
-         on the bigger boards, whether Small at ~14 min is right, whether the grown initials
-         read, whether the Twist floor makes the endgame better or duller, whether the
-         sounds are the right sounds at the right volumes, and whether ~2.9s of fire is
-         the right length when you are waiting to take your turn. The tables to turn are
-         `SFX_SECONDS`/`SFX_PEAK` in `waveforms.ts`, `BURN` in `burn.ts`, and the timing
-         table in `startSequence.ts`.
+- [x] **M6 remainder — playtested 2026-08-10.** Twice, on the deployed build, on real
+      phones. Pacing and interface came back fine; the burn at 2.9s and the shatter at 4.7s
+      both survived contact and can stop being tuned for length. The sound did NOT survive
+      and was recut at M7.5 (§13.1). Everything else it turned up became M7.5 below.
 - [x] **M7 — Endgame sequence.** ✅ 2026-08-10. Crack, flight, clacks, count-up, victory.
       A second full-screen canvas (`render/shatter.ts`), an eighth sound (`crack`), and
       `planShatter()` split out pure with 6 tests — including the one that matters, that a
@@ -1775,9 +1787,14 @@ have passed the sound that failed, which is the entire point of writing it.
       counters climbing to the true final score, crown, then the result — plus the
       reduced-motion path, which reaches the result with no frames drawn at all.
       **1.8 ms median / 5.4 ms worst frame** on a full 12×12. No console errors.
-      *Never watched by a human. Nobody has seen 144 squares fly.*
+      **Watched by a human 2026-08-10** — the pacing came back fine, which is what retired
+      the "nobody has seen 144 squares fly" warning this line used to carry.
 - [ ] **M7.5 — what the 2026-08-10 playtests asked for.** Ordered by how much it matters,
       not by effort. The first two are correctness; everything after is feel.
+      **Six of the nine are done and deployed** (1, 2, 4, 5, 8, 9 — 9 minus its voice
+      lines). **Everything still open is the Wildcard, and it is one decision, not three:**
+      item 3's remaining half, item 6, and item 7 which depends on 6. See item 3 for why the
+      redesign as written fixes the wrong half of the problem.
       1. ✅ **BUILT 2026-08-10 — the timeout places a line.** `penaltyFor` and `autoMoveLine`
          in `rules.ts`, called from `onAlarm()` and from hot seat's local clock. Both of the
          silent failures are covered by name in `rules.test.ts`: it broadcasts as a `move`
@@ -1812,10 +1829,14 @@ have passed the sound that failed, which is the entire point of writing it.
          more usefully, the method: a single considered guess at each was rejected outright,
          a spread of three converged first time. Character is now tested — the old tests
          could not tell any of the versions apart.
-      6. **Redesign the Wildcard as one glowing wand.** Collapses buy-and-arm into a single
+      6. 🔴 **NOT BUILT — blocked on a decision, not on effort.** Redesign the Wildcard as
+         one glowing wand. Collapses buy-and-arm into a single
          tap, with the ten squares' glow absorbed into the wand. Keep `wildcardCostPreview`
          as the single source of which ten. See the log.
-      7. **Hide the running score, reveal it in the shatter.** Puff the name icon on a claim
+      7. 🔴 **NOT BUILT — depends on 6.** Hiding the score removes the only signal that you
+         can afford a Wildcard, and the glowing wand is what takes that job over, so these
+         ship together and 6 goes first. Hide the running score, reveal it in the shatter.
+         Puff the name icon on a claim
          instead. Makes M7's count-up the payoff it was built to be. See the log.
       8. ✅ **BUILT 2026-08-10 — board size in hot seat.** The same
          Small/Medium/Large/Grand chips as the lobby, gated by the same
@@ -1831,8 +1852,24 @@ have passed the sound that failed, which is the entire point of writing it.
          checked against real games; simulation could not settle it (see `STREAK_TIERS`),
          so they need your eyes. Voice lines remain yours to produce — they would be the
          first sampled audio in the project and need the §12.4 decisions first.
-- [ ] **M8 — PWA + ship.** Manifest, service worker, icons, offline shell, custom domain.
-      **Playtest with 6 real people.**
+- [ ] **M8 — PWA + ship.** ⬅ **NEXT, and the last milestone.** §14 is the spec.
+
+      Already done, so do not redo it: `index.html` carries `theme-color`,
+      `mobile-web-app-capable`, `apple-mobile-web-app-capable`, the status-bar style,
+      `viewport-fit=cover` and the font preload. What is left:
+
+      1. 🔴 **Icons — the critical path, and the only part that is not plumbing.** 192, 512
+         and a maskable 512, plus an `apple-touch-icon`. These need a designed mark and
+         that is an owner decision; `wordmark.ts` is the starting point. Everything else in
+         M8 is a day's work and can be built with placeholder slots.
+      2. **Manifest + service worker** via `vite-plugin-pwa`, `registerType: 'autoUpdate'`,
+         `display: standalone`, `orientation: portrait`.
+      3. **Precache the app shell.** ⚠️ The game NEEDS a network — it is a multiplayer
+         Durable Object. Offline must show a branded "you're offline" screen with the rules,
+         never a browser error, and never a board that silently cannot move.
+      4. **Add-to-home-screen prompt after a completed game**, never on first load.
+      5. **Custom domain** — owner's DNS.
+      6. **Playtest with 6 real people.**
 
 **Do M1 before M2.** A pure, tested rules engine makes M3 nearly mechanical; skipping it
 means debugging game logic and network logic simultaneously, which is miserable.
@@ -1843,8 +1880,19 @@ means debugging game logic and network logic simultaneously, which is miserable.
 
 2. **Room code length** — 4 chars is friendlier to type; collision risk is fine at this
    scale with retry-on-collision. Confirm at M3.
-3. **Wildcard price** (§9.3) — 10 is deliberately steep and probably right, but it's a
-   `constants.ts` value. Revisit after the first 6-player playtest.
+3. **Wildcard price** (§9.3) — 🔴 **now the blocking question for M7.5 items 3, 6 and 7.**
+   10 was chosen as deliberately steep and untested. It is measurably out of reach:
+   ten boxes cannot be banked until roughly **turn 93 of 132** on a 2-player Small board, or
+   **165 of 180** with six players on Medium, because in Dots and Boxes every box arrives at
+   the end. So the wand is a grey stick for ~70% of the game.
+
+   The requested redesign (one glowing wand, §10.5) fixes *clunky*. It does not fix *never
+   saw it*, because the thing is simply unreachable for most of a match. **Decide the
+   economics first, then build the wand** — or build the wand knowing it will draw the same
+   complaint again. `WILDCARD_COST` in `constants.ts` is the one value; nothing else moves.
+
+   Also open, and cheaper to answer: are the streak tiers right? (§12.4.1, `STREAK_TIERS`.)
+   Simulation could not settle them and both measurements are recorded there.
 4. **Watch-to-play ratio.** With 8 players on a 10×10 board you act for ~3 minutes and watch
    for ~19. The shot clock and the shrinking board are the mitigations; whether they're
    enough is a playtest question, not a design one. If they aren't, the earliest lever is
