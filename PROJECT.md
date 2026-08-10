@@ -58,9 +58,14 @@ Smaller things worth doing whenever they suit:
   judged it since. Turn `SFX_SECONDS` / `SFX_PEAK` in `waveforms.ts`; nothing else.
 - **The burn is 2.9s.** Nobody has yet watched it while waiting for their turn. `BURN` in
   `burn.ts` is the one table.
-- ~~The live site is stale~~ — **redeployed 2026-08-03** with everything in this file.
-  Verified on production: a room was created and looked back up, so the Worker and the
-  Durable Object are both live.
+- **The shatter is ~4.7s from last box to rematch screen**, of which 900ms is the crown
+  sitting on the scoreboard before the result covers it. Nobody has yet waited through it.
+  `SHATTER` in `shatter.ts` is the one table.
+- ~~The live site is stale~~ — **redeployed 2026-08-10 with M7**. Verified on production:
+  the served bundle is `index-Cd9gbj-9.js` and contains the shatter and the `crack` sound,
+  and a room was created and looked back up, so the Worker and the Durable Object are both
+  live. **Check this before every playtest** — the site was a week stale going into this
+  one, which would have made the endgame untestable without anyone noticing why.
 
 ### What is verified, and what is only "compiles"
 
@@ -164,9 +169,11 @@ All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twis
 | **PWA / installable** | ❌ Not started |
 | **Deployed** | ✅ https://box.charlesbobby253.workers.dev |
 
-**Live since 2026-07-31, redeployed 2026-08-02** with everything below. Verified against the deployed site, not just dev: room creation,
-code lookup, two WebSocket clients joining, a move propagating to both, and a **28 ms median
-round-trip**. Redeploy with `npm.cmd run deploy` (~30 seconds).
+**Live since 2026-07-31, redeployed 2026-08-10 with M7.** Verified against the deployed
+site, not just dev: room creation, code lookup, two WebSocket clients joining, a move
+propagating to both, and a **28 ms median round-trip**. Redeploy with `npm.cmd run deploy`
+(~30 seconds), then confirm the served bundle actually changed — the success message is
+printed before the new Worker has finished propagating.
 
 Two things only the real deploy revealed:
 - Requests in the first ~30 seconds after a deploy can hit the old Worker while the new one

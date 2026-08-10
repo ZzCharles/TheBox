@@ -119,7 +119,12 @@
       "Bash(echo \"\\(exit: $?\\)\")",
       "Bash(git remote *)",
       "Bash(git push *)",
-      "Bash(git ls-tree *)"
+      "Bash(git ls-tree *)",
+      "Bash(curl -s --max-time 15 https://box.charlesbobby253.workers.dev/)",
+      "Bash(curl -s --max-time 20 https://box.charlesbobby253.workers.dev/)",
+      "Bash(read p *)",
+      "Bash(curl -s --max-time 20 https://box.charlesbobby253.workers.dev/__TRACKED_VAR__)",
+      "Bash(curl -s --max-time 25 https://box.charlesbobby253.workers.dev/assets/index-Cd9gbj-9.js)"
     ]
   }
 }
