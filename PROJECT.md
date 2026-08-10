@@ -2,8 +2,8 @@
 
 > **Name:** **Tiki** (was BOX; renamed 2026-08-02).
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M7 built, deployed and played. **M7.5 (playtest fixes) is next — start
-> with finding out why nobody can see Twist mode.**
+> **Status:** M0–M7 built, deployed and played. **M7.5 is next — start with the timeout
+> pass exploit, which lets a player refuse a losing turn.**
 > **Last updated:** 2026-08-10
 
 ---
@@ -39,14 +39,24 @@ shrunk: there are now two set-piece animations nobody has watched.
 
 ### The next step, in one line
 
-**Find out why nobody can see Twist's two mechanics** — the collapse warning and the
-Wildcard shop have now gone unseen in two consecutive playtests, and the "they were probably
-in Simple mode" explanation is spent. **Diagnose before building.** Full brief in the
-playtest log for 2026-08-10; the ordered list is M7.5 in §15.
+**A player can pass by letting the clock run out, and passing wins games.** `onAlarm()`
+advances the turn without placing a line, so anyone who notices can refuse every losing
+turn — and refusing to open a chain is the whole endgame of Dots and Boxes. Play a legal
+move for them instead of skipping. ⚠️ **Read the playtest log before touching the timer:
+removing it is the owner's instinct and it is the wrong lever.**
 
-The game was finally played on the deployed build on 2026-08-10. Pacing and interface came
-back fine — the shatter and the burn are the right length and can stop being tuned. Sound
-came back "not good enough", with specifics. Two new features were requested (§12.4, §15).
+The game was properly played on the deployed build on 2026-08-10, twice. What came back:
+
+- ✅ **Settled.** Pacing and interface are fine — the 4.7s shatter and 2.9s burn can stop
+  being tuned for length. Streak wording settled (§12.4).
+- 🔴 **Correctness.** The pass exploit above. Twist's two mechanics still unfindable after
+  two sessions (§16 #5). A double-tap complaint that is either confirm-tap being undisclosed
+  or a real pending-line bug — establish which first (§10.2).
+- 💡 **Feel.** Sound "not good enough" with specifics; the Wildcard is clunky and wants to
+  be one glowing wand; hide the running score so M7's count-up becomes the reveal.
+
+The ordered list is **M7.5 in §15**. Everything is written up in the playtest log with the
+reasoning, including two places where the owner's suggested fix is worse than the problem.
 
 ### Roadmap
 
@@ -190,6 +200,78 @@ Two things only the real deploy revealed:
   environment; see the secure-context invariant in §17.
 
 ### Playtest log
+
+- **2026-08-10, second session, several games on the deployed build.** Four reports. One is
+  a **rules exploit**, not a UX complaint, and it is the most serious thing in this file.
+
+  🔴 **1. A player can pass by doing nothing, and passing wins games.**
+  > "I found a player can skip a risky draw when he just doesn't make a move."
+
+  Confirmed in the code: `onAlarm()` calls **`skipTurn`**, which advances the turn without
+  placing a line (`GameRoom.ts:696`). **In Dots and Boxes there is no passing.** The whole
+  endgame is about being forced to open a chain, so a free pass is not a small exploit — it
+  is a way to refuse to lose, and a player who has noticed it can stall every losing turn.
+
+  ⚠️ **The fix is almost certainly NOT the timer.** The owner suggested removing or making
+  the timer optional; that trades one problem for the worse one it was built to solve
+  (§6.3 exists because a single player can otherwise hold the board indefinitely). The
+  smaller, truer fix: **on timeout the server plays a legal move FOR you** rather than
+  skipping. That matches the actual rules — you must place a line — removes the exploit
+  completely, keeps the clock honest, and needs no new UI. Choosing *which* move is the
+  only real design question (a safe edge if one exists, else random) and `legalMoves(state)`
+  already returns the candidates. Benching after two misses can stay exactly as it is.
+  An optional no-timer mode is still worth having for friends playing slowly, but it should
+  not be the answer to this.
+
+  🔴 **2. "Multiplayer tap isn't responsive. Have to double tap."**
+  Two candidate causes, and the first is not a bug at all:
+  - **Confirm-tap is ON for every grid ≥ 10×10** (`CONFIRM_TAP_FROM_GRID`, §10.2). First tap
+    ghosts, second commits. That is *designed*, and it is being experienced as broken input.
+    ⚠️ **§10.2 claims it is "player-overridable in settings". It is not** — there is no such
+    control in `settings.ts`. That is a documentation lie, now corrected.
+  - Or the **pending-line round trip** simply feels dead: you tap, the line goes faint, and
+    nothing else happens until the server answers. §10.2 already fixed ghost-vs-pending
+    once; it may still not be enough over real latency.
+
+  **Discriminator:** ask what board size the game was on. On Small (8×8) confirm-tap is off,
+  so a double tap there is the pending path and a genuine bug; on Medium and up it is the
+  feature. Do not guess — the two need opposite fixes.
+
+  💡 **3. Hide the running score; reveal it at the end.**
+  > "Maybe not show the scores early, so they won't know if they are ahead. When capturing
+  > the box it will just puff up the name icon momentarily. Also helps to wait till the end
+  > for the surprise score reveal."
+
+  **This pairs unusually well with what M7 already built.** The shatter's whole third act is
+  a count-up from `harvested[p]` to the real score (§12.3); today it announces a number
+  everybody has been watching climb all game. Hiding the running total turns the endgame
+  from a formality into the reveal it was designed to be, for free.
+
+  ⚠️ One honest limit: **this hides the number, not the information.** Every claimed square
+  carries its owner's letter, so a determined player can count the board — §17's
+  `score === boxes you visibly own` guarantees it. That is probably fine (counting 40 squares
+  under a 12s clock is real work) but it should be a decision, not a surprise. It also needs
+  an answer for "how do I know I can afford a Wildcard" — see 4, where the glow does exactly
+  that job.
+
+  💡 **4. The Wildcard is clunky — two presses, and it "feels lanky".**
+  Requested redesign: **one magic wand on the left**, grey while unaffordable, glowing once
+  you hold 10 boxes. Tap it and the ten squares' glow is visibly **absorbed into the wand**;
+  everyone else sees the glow absorbed into that player's name icon.
+
+  This collapses buy-then-arm into a single action. ⚠️ That is a **deliberate reversal** of
+  §9.3's "explicit arming, so nothing is ambiguous under the clock" — which was a M1
+  decision made without a playtest, and has now been called clunky by the only person who
+  has played it. Two playtests beat one untested principle; the reversal looks right. What
+  must be preserved is that **firing is still unambiguous**: the wand has to keep saying
+  "armed, your next line is free" after the animation ends, or players will spend one and
+  not know they are holding it.
+
+  ⚠️ **Not "10 boxes at random."** The ten are chosen furthest-from-centre first, and
+  `wildcardCostPreview()` is both what the board outlines and what `buyWildcard` spends —
+  there is a test asserting they cannot disagree (§9.3). Keep that. The absorb effect should
+  animate *those* ten, which is better anyway: they are the outer ring, so the glow travels
+  inward from the board's edge toward the player.
 
 - **2026-08-10, on the deployed HTTPS build, with M7 live.** Verdict: the pacing and the
   interface are fine; the two Twist mechanics are still invisible; the sound is not good
@@ -901,7 +983,13 @@ and each keeps the other's battery cost alive.
   are ignored rather than snapped.
 - **Confirm-tap: on by default for grids ≥ 10×10**, off below. First tap ghosts the line,
   second commits; tapping elsewhere re-targets. The 12s clock affords this comfortably, and
-  a misplaced line is far more painful than a slow turn. Player-overridable in settings.
+  a misplaced line is far more painful than a slow turn.
+  ⚠️ **It is NOT overridable in settings**, whatever this line used to claim — there is no
+  such control in `settings.ts`, and nothing in the UI says a second tap is expected. A
+  playtester reported it as "multiplayer tap isn't responsive, have to double tap"
+  (2026-08-10), which is precisely what an undisclosed confirm step feels like. Either
+  build the toggle this line promised, or tell the player on screen that the ghost is
+  waiting for them — but stop shipping a deliberate extra tap that looks like a dropped one.
 - `touch-action: none` on the canvas. Handle `pointerdown/move/up`, not touch events.
 - ⚠️ **`touch-action: none` does NOT stop iOS from treating a drag as "go back".** Safari's
   edge swipe is a SYSTEM gesture; neither it nor `overscroll-behavior: none` touches it, and
@@ -1187,14 +1275,22 @@ A chain is already the most exciting thing that happens in this game and current
 a small "+1 GO AGAIN" flourish (§12.2). The ask is to make a *big* chain an event, the way
 Candy Crush's Sugar Crush is: a phrase slamming onto the screen with a voice line behind it.
 
-Tiers as requested, **counting boxes claimed in a single turn**:
+Tiers, **counting boxes claimed in a single turn**. Wording settled 2026-08-10 — the ladder
+climbs on its own, so a muted player still reads the rank from the word:
 
-| Boxes | Word |
-|---|---|
-| 4–6 | Dazzling!!! |
-| 7–9 | Splendid!!! |
-| 10–12 | Marvellous!!! |
-| 13+ | Wildfire |
+| Boxes | Word | Heat |
+|---|---|---|
+| 4–6 | **Nice** | a warm ember glow behind the word |
+| 7–9 | **Blazing** | flames licking the letters from below |
+| 10–12 | **Ruthless** | fully alight, embers drifting up |
+| 13+ | **WILDFIRE** | the word burns and the board's vignette flares with it |
+
+**Fire is the through-line, and it is already built.** `burn.ts` owns a flame ramp, a
+particle pool and a tile-heat gradient (§10.4), all tuned and all measured at 2.6 ms worst
+frame. The callouts should draw from that same vocabulary rather than inventing a second
+fire — one flame language for the collapsing ring and the streak, so `WILDFIRE` reads as the
+board catching the player's mood. Reuse `FIRE.flameRamp` and the existing pool; do not
+allocate a new one.
 
 **Voice lines are the owner's to produce** (ElevenLabs), at rising excitement per tier.
 That makes them the first *sampled* audio in the project, which §13 deliberately avoided —
@@ -1203,11 +1299,6 @@ gated behind the existing mute toggle. They cannot go through `waveforms.ts`.
 
 Two things to settle before building it:
 
-- **The middle tiers do not self-rank.** Nobody can tell whether Splendid beats Dazzling;
-  only the voice would carry the escalation, and a muted player gets no ladder at all. A
-  set that climbs on its own reads better — e.g. **Nice → Blazing → Ruthless → WILDFIRE**,
-  or keep the requested words but let size, colour and shake do the ranking. Owner's call;
-  `Wildfire` at the top is clearly right either way.
 - **The thresholds are guesses and should be checked against real games.** A 4-box chain
   may turn out to be routine on Small, in which case the bottom tier fires constantly and
   stops meaning anything — the same failure the Wildcard nudge was designed around (§10.5).
@@ -1392,17 +1483,30 @@ special handling at the call site.
       reduced-motion path, which reaches the result with no frames drawn at all.
       **1.8 ms median / 5.4 ms worst frame** on a full 12×12. No console errors.
       *Never watched by a human. Nobody has seen 144 squares fly.*
-- [ ] **M7.5 — what the 2026-08-10 playtest asked for.** Ordered by how much it matters,
-      not by effort. The first item is a bug hunt and everything else waits on it.
-      1. **Make Twist visible, or find out why it isn't.** See the playtest log — the
-         collapse warning and the Wildcard shop have now gone unseen in two consecutive
-         sessions. Diagnose before building (§16 has the open question).
-      2. **Rework `tick` and `click`.** Paper-drag and a satisfying click. See the log.
-      3. **Board size in hot seat.** `hotseat.ts` derives `n` from `gridSizeFor(playerCount)`
+- [ ] **M7.5 — what the 2026-08-10 playtests asked for.** Ordered by how much it matters,
+      not by effort. The first two are correctness; everything after is feel.
+      1. 🔴 **Stop the timeout being a free pass.** A player can refuse a losing turn by
+         letting the clock run out, which breaks the endgame of Dots and Boxes. Play a
+         legal move for them on timeout instead of `skipTurn`. See the playtest log — and
+         read the note there before reaching for the timer, which is not the fix.
+      2. 🔴 **Find out why nobody can see Twist's two mechanics.** Two consecutive sessions
+         could not find the collapse warning or the Wildcard shop. Diagnose before building
+         (§16 #5).
+      3. 🔴 **The double-tap complaint.** Establish first whether it was confirm-tap on a
+         ≥10 board (a disclosure problem) or the pending round trip on Small (a real bug);
+         the two need opposite fixes. §10.2.
+      4. **Rework `tick` and `click`.** Paper-drag and a satisfying click. See the log.
+      5. **Redesign the Wildcard as one glowing wand.** Collapses buy-and-arm into a single
+         tap, with the ten squares' glow absorbed into the wand. Keep `wildcardCostPreview`
+         as the single source of which ten. See the log.
+      6. **Hide the running score, reveal it in the shatter.** Puff the name icon on a claim
+         instead. Makes M7's count-up the payoff it was built to be. See the log.
+      7. **Board size in hot seat.** `hotseat.ts` derives `n` from `gridSizeFor(playerCount)`
          with no way to override it, so the one-device mode cannot play anything but the
          default. The online lobby already has the Small/Medium/Large/Grand chips and the
          preset table (§8.1); this is mostly lifting that picker across.
-      4. **Streak callouts.** See §12.4.
+      8. **Streak callouts.** See §12.4.
+      9. *Optional, and not a fix for item 1:* a no-timer mode for people playing slowly.
 - [ ] **M8 — PWA + ship.** Manifest, service worker, icons, offline shell, custom domain.
       **Playtest with 6 real people.**
 
