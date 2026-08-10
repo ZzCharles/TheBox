@@ -39,11 +39,14 @@ shrunk: there are now two set-piece animations nobody has watched.
 
 ### The next step, in one line
 
-**A player can pass by letting the clock run out, and passing wins games.** `onAlarm()`
-advances the turn without placing a line, so anyone who notices can refuse every losing
-turn — and refusing to open a chain is the whole endgame of Dots and Boxes. Play a legal
-move for them instead of skipping. ⚠️ **Read the playtest log before touching the timer:
-removing it is the owner's instinct and it is the wrong lever.**
+**Build §6.3.1 — the timeout auto-move.** A player can currently pass by letting the clock
+run out, and refusing to open a chain is the whole endgame of Dots and Boxes, so passing
+wins games. Decided 2026-08-10: **keep the timer, and auto-play the second most penalising
+move.** §6.3.1 is the full spec — ranking rule, chain metric, edge cases, and the two things
+that break silently if you miss them. §6.3.2 covers the host clock toggle that goes with it.
+
+It is a contained change: pure selection logic in `rules.ts`, one call site in `onAlarm()`,
+and it reuses the existing `move` broadcast and replay path rather than needing a new one.
 
 The game was properly played on the deployed build on 2026-08-10, twice. What came back:
 
@@ -574,9 +577,83 @@ This is what stops one player holding the board for a minute on a long chain.
 At **4 seconds remaining** the active player gets a warning: haptic buzz, ring turns amber,
 subtle tone. See §12.2 for the client side.
 
-`ctx.storage.setAlarm(deadlineMs)`. On `alarm()`, the server force-skips the current
-player and advances. This is the single most important reason to use Durable Objects —
-you get an authoritative timer without an always-on process.
+`ctx.storage.setAlarm(deadlineMs)`. This is the single most important reason to use Durable
+Objects — you get an authoritative timer without an always-on process.
+
+**On `alarm()` the server currently force-SKIPS, and that is a bug. See §6.3.1.**
+
+### 6.3.1 A timeout must place a line, not pass — SPEC, NOT YET BUILT
+
+**In Dots and Boxes there is no passing.** `onAlarm()` calls `skipTurn`, which advances the
+turn without placing anything (`GameRoom.ts:696`), so a player facing a losing turn can
+simply let the clock run out. The entire endgame is about being forced to open a chain, so
+this is not a small exploit — it is a way to decline to lose, and it was found in play
+(2026-08-10).
+
+**Decided 2026-08-10: keep the timer, and auto-play the SECOND most penalising move.**
+
+#### Which move
+
+Rank every legal move by how many boxes it hands the next player, highest first, and take
+**the second-highest distinct penalty**. The owner's own example is the spec: if the
+available moves would give away 10, 7 or 4 boxes, auto-play the **7**.
+
+- Not the worst move, because a missed turn should not be a loss.
+- Not a safe move, because then timing out is still free and the exploit survives.
+- It is a warning with a real cost, which is exactly the intent.
+
+Edge cases, all of which will occur:
+- **Only one distinct penalty** (very common mid-game — most moves give away nothing):
+  there is no second, so play a 0-penalty move. No penalty is possible, so none is applied.
+- **Only one legal move:** play it.
+- **Ties at the top** (two moves both giving 10): rank by *distinct value*, so the second
+  distinct penalty is still 7 and not the other 10. This is the reading that matches the
+  example.
+
+#### Defining "penalty"
+
+`penalty(line)` = **the number of boxes the next player could immediately claim**, computed
+by applying the line to a copy and then greedily claiming every box that reaches 3 edges,
+repeatedly, until none remain. That greedy loop is what makes it count a whole *chain*
+rather than just its entrance — a 5-box chain shows only one or two 3-edge boxes, so a
+naive count would rate it as harmless and the auto-move would happily hand it over.
+
+Keep this **pure and in `rules.ts`**, for the reason the whole file exists: the client
+replays what the server did, so both must compute the same move from the same state.
+
+#### ⚠️ Two things that will silently break if missed
+
+1. **Broadcast it as a `move`, not a `skip`.** The client already replays `move` through the
+   same `applyMove` the server ran (§7), so an auto-move needs no new replay path at all —
+   add a flag (`auto: true`) so the UI can say *"Ada ran out of time — a line was placed for
+   them"*. Inventing a new message type here would be re-solving a solved problem.
+2. **The auto-move must NOT reset the missed-turn counter.** `applyMove` clears `missed` on
+   a successful move, which is right for a player who acted and wrong for one who did not.
+   If this is missed, `missed` never reaches 2, **nobody is ever benched again**, and §6.4
+   quietly stops working — with no error and no visible symptom until an AFK player holds a
+   game up forever.
+
+### 6.3.2 Turning the clock off — SPEC, NOT YET BUILT
+
+**The host can switch the timer off; it is ON by default.** A room config flag, alongside
+`mode` and `gridSize`, so the lobby chips already have somewhere to put it.
+
+The owner also asked for **no timer once ~60% of cells are captured**, on the grounds that
+endgame moves deserve thought.
+
+⚠️ **Both of these re-open the exploit they are next to, and the 60% rule re-opens it at
+precisely the worst moment.** The auto-move above only works while there is a clock to
+expire; with no clock, "wait forever" replaces "wait 12 seconds", and the endgame — after
+60% capture — is exactly when refusing to move is most valuable. A no-timer room is a room
+where one player can stall indefinitely, which is the problem the shot clock was built for
+in the first place (§6.3).
+
+Recommendation, which the owner should overrule if they disagree: **the 60% rule should
+lengthen the clock, not remove it.** Double `turnSeconds` past the threshold. That grants
+the extra thinking time the request is actually about while keeping a backstop, and it
+leaves the auto-move as the thing that guarantees every game terminates. Reserve the full
+off switch for the explicit host toggle, where it is a deliberate choice by someone who
+knows the room.
 
 `turnDeadline` is broadcast as an **absolute epoch ms**. Clients estimate clock offset at
 join (3 ping round-trips, take the median) and render the countdown against corrected
@@ -1495,28 +1572,32 @@ special handling at the call site.
       *Never watched by a human. Nobody has seen 144 squares fly.*
 - [ ] **M7.5 — what the 2026-08-10 playtests asked for.** Ordered by how much it matters,
       not by effort. The first two are correctness; everything after is feel.
-      1. 🔴 **Stop the timeout being a free pass.** A player can refuse a losing turn by
-         letting the clock run out, which breaks the endgame of Dots and Boxes. Play a
-         legal move for them on timeout instead of `skipTurn`. See the playtest log — and
-         read the note there before reaching for the timer, which is not the fix.
-      2. 🔴 **Find out why nobody can see Twist's two mechanics.** Two consecutive sessions
+      1. 🔴 **Stop the timeout being a free pass.** ✅ Decided, spec written: keep the timer
+         and auto-play the **second most penalising** move. **`PROJECT.md` §6.3.1 is the
+         whole specification** — the ranking rule, the greedy chain metric, the edge cases,
+         and the two things that break silently if missed (broadcast as `move` not `skip`;
+         do not reset the missed counter). Pure, in `rules.ts`, with tests.
+      2. 🔴 **Host toggle for the clock, on by default**, plus the 60% rule. §6.3.2 — which
+         argues the 60% case should double the clock rather than remove it, since a room
+         with no clock re-opens the exploit item 1 just closed.
+      3. 🔴 **Find out why nobody can see Twist's two mechanics.** Two consecutive sessions
          could not find the collapse warning or the Wildcard shop. Diagnose before building
          (§16 #5).
-      3. **Disclose confirm-tap.** ✅ Diagnosed: the games were on Medium (10×10), where the
-         second tap is deliberate. Not an input bug — say it on screen while a ghost is
-         live, and optionally build the settings toggle §10.2 wrongly claims exists.
-      4. **Rework `tick` and `click`.** Paper-drag and a satisfying click. See the log.
-      5. **Redesign the Wildcard as one glowing wand.** Collapses buy-and-arm into a single
+      4. ✅ **DONE 2026-08-10 — confirm-tap is now Large and Grand only.** The complaint came
+         from Medium, where the cells are still big enough to hit accurately, so the
+         insurance cost more than the mistakes it prevented. `CONFIRM_TAP_FROM_GRID` is 12.
+         **Not yet deployed.**
+      5. **Rework `tick` and `click`.** Paper-drag and a satisfying click. See the log.
+      6. **Redesign the Wildcard as one glowing wand.** Collapses buy-and-arm into a single
          tap, with the ten squares' glow absorbed into the wand. Keep `wildcardCostPreview`
          as the single source of which ten. See the log.
-      6. **Hide the running score, reveal it in the shatter.** Puff the name icon on a claim
+      7. **Hide the running score, reveal it in the shatter.** Puff the name icon on a claim
          instead. Makes M7's count-up the payoff it was built to be. See the log.
-      7. **Board size in hot seat.** `hotseat.ts` derives `n` from `gridSizeFor(playerCount)`
+      8. **Board size in hot seat.** `hotseat.ts` derives `n` from `gridSizeFor(playerCount)`
          with no way to override it, so the one-device mode cannot play anything but the
          default. The online lobby already has the Small/Medium/Large/Grand chips and the
          preset table (§8.1); this is mostly lifting that picker across.
-      8. **Streak callouts.** See §12.4.
-      9. *Optional, and not a fix for item 1:* a no-timer mode for people playing slowly.
+      9. **Streak callouts.** See §12.4.
 - [ ] **M8 — PWA + ship.** Manifest, service worker, icons, offline shell, custom domain.
       **Playtest with 6 real people.**
 

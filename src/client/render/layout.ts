@@ -33,8 +33,17 @@ export const DOT_GRAB_TOLERANCE = 0.4;
  */
 export const AMBIGUITY_RATIO = 0.15;
 
-/** Confirm-tap is on by default from this grid size up. */
-export const CONFIRM_TAP_FROM_GRID = 10;
+/**
+ * Confirm-tap is on by default from this grid size up — **Large and Grand only**
+ * (revised 2026-08-10, was 10 and therefore Medium too).
+ *
+ * A playtester on Medium reported "multiplayer tap isn't responsive, have to double tap"
+ * and played several games without ever working out the second tap was deliberate. On a
+ * 10x10 board the cells are still big enough to hit accurately, so the insurance was
+ * costing more than the mistakes it prevented. Large and Grand are where cells get small
+ * enough that a misplaced line is the bigger risk.
+ */
+export const CONFIRM_TAP_FROM_GRID = 12;
 
 /**
  * Fit an n x n board into a viewport, leaving a half-cell of breathing room on

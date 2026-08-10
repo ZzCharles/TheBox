@@ -125,7 +125,7 @@
       "Bash(read p *)",
       "Bash(curl -s --max-time 20 https://box.charlesbobby253.workers.dev/__TRACKED_VAR__)",
       "Bash(curl -s --max-time 25 https://box.charlesbobby253.workers.dev/assets/index-Cd9gbj-9.js)",
-      "Bash(perl -0pi -e 's/> \\\\*\\\\*Status:\\\\*\\\\* M0–M7 built, deployed and played\\\\. \\\\*\\\\*M7\\\\.5 \\\\\\(playtest fixes\\\\\\) is next — start\\\\n> with finding out why nobody can see Twist mode\\\\.\\\\*\\\\*/> **Status:** M0–M7 built, deployed and played. **M7.5 is next — start with the timeout\\\\n> pass exploit, which lets a player refuse a losing turn.**/;' PROJECT.md)"
+      "Bash(sed -n '/M7.5 — what the/,/^- \\\\[ \\\\] \\\\*\\\\*M8/p' PROJECT.md)"
     ]
   }
 }
