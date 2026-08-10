@@ -114,7 +114,12 @@
       "Bash(perl -0pi -e 's/gridSize: \\(\\\\w+\\), mode/n: $1, mode/g' src/client/render/shatter.test.ts)",
       "Bash(grep -nE '^\\\\s+\\\\|?\\\\s*\\\\{?\\\\s*$|t: \"')",
       "Bash(perl -0pi -e ' *)",
-      "Bash(perl -0pi -e 's/43 tests/42 tests/g' PROJECT.md)"
+      "Bash(perl -0pi -e 's/43 tests/42 tests/g' PROJECT.md)",
+      "Bash(git ls-remote *)",
+      "Bash(echo \"\\(exit: $?\\)\")",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(git ls-tree *)"
     ]
   }
 }

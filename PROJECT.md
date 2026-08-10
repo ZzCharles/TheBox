@@ -120,6 +120,14 @@ and none of the playtest fixes. `design-pass` was fast-forwarded into `main`; th
 now identical and `design-pass` is kept only as a label on the same commit. **Work on
 `main`.**
 
+**There is now a remote:** https://github.com/ZzCharles/TheBox — public, `main` tracking
+`origin/main`. Pushed 2026-08-10, which is the first time this project has existed anywhere
+but one disk. Push as you go; the Cloudflare deploy is a built artifact and backs up nothing.
+
+⚠️ **The repo is public, so keep it clean.** `.dev.vars` holds `OWNER_KEY` and is gitignored
+— check it stays that way. The account email and id deliberately do NOT appear in this file;
+`npx.cmd wrangler whoami` is where they live.
+
 ### Deploying
 
 Wrangler **4.115.0** is installed and already logged in on the owner's machine, so
