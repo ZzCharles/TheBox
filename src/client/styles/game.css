@@ -1313,3 +1313,156 @@ input:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * Streak callouts (§12.4). Absolutely positioned inside .board-wrap so it costs
+ * the layout nothing, and pointer-events: none throughout — the player is
+ * mid-chain on the clock and must be able to tap straight through it.
+ *
+ * The flame colours are the ones burn.ts uses (FIRE.flameRamp in constants.ts),
+ * restated here for the same reason the palette is: one vocabulary, two files.
+ * The word should look like the board catching the player's mood, not like a
+ * second unrelated fire.
+ */
+.streak {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 5;
+  /* Clips the slam, which overshoots to 2.1x on its way in. */
+  overflow: hidden;
+  transition: opacity 260ms ease;
+}
+
+.streak-word {
+  font-size: clamp(2rem, 12vw, 4rem);
+  font-weight: 900;
+  font-stretch: 118%;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  text-align: center;
+  will-change: transform;
+}
+
+.streak.out {
+  opacity: 0;
+}
+
+/* 4-6. A warm ember behind the word — the quietest rung on the ladder. */
+.streak[data-tier="4"] .streak-word {
+  color: rgb(255 186 74);
+  text-shadow:
+    0 0 12px rgb(255 126 44 / 55%),
+    0 2px 0 rgb(104 26 12 / 60%);
+}
+
+/* 7-9. Flames licking up the letters. */
+.streak[data-tier="7"] .streak-word {
+  background-image: linear-gradient(
+    0deg,
+    rgb(214 62 26) 0%,
+    rgb(255 126 44) 34%,
+    rgb(255 186 74) 66%,
+    rgb(255 232 168) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 14px rgb(255 126 44 / 60%));
+}
+
+/* 10-12. Fully alight, and hotter at the core. */
+.streak[data-tier="10"] .streak-word {
+  background-image: linear-gradient(
+    0deg,
+    rgb(214 62 26) 0%,
+    rgb(255 126 44) 26%,
+    rgb(255 232 168) 62%,
+    rgb(255 252 240) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 20px rgb(255 126 44 / 75%));
+}
+
+/* 13+. The word burns and takes the board's vignette with it. */
+.streak[data-tier="13"] .streak-word {
+  background-image: linear-gradient(
+    0deg,
+    rgb(255 126 44) 0%,
+    rgb(255 232 168) 45%,
+    rgb(255 252 240) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 26px rgb(255 112 68 / 90%));
+}
+
+/* The vignette flare, WILDFIRE only. Behind the word, inside the wrap. */
+.streak[data-tier="13"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(
+    120% 90% at 50% 100%,
+    rgb(255 112 68 / 26%) 0%,
+    rgb(214 62 26 / 12%) 45%,
+    transparent 72%
+  );
+  animation: streak-flare 850ms ease-out;
+}
+
+/*
+ * The slam. Overshoots and settles, which is what makes it land rather than
+ * appear. Kept to transform and opacity so it stays off the layout path.
+ */
+.streak-word.slam {
+  animation: streak-slam 260ms cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+
+@keyframes streak-slam {
+  from {
+    opacity: 0;
+    transform: scale(2.1);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes streak-flare {
+  from {
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.55;
+  }
+}
+
+/*
+ * Reduced motion: keep the state change, drop the sequence (§10.4's rule). The
+ * word still arrives and still burns — it just does not travel to get there.
+ */
+.streak.still .streak-word,
+.streak.still .streak-word.slam {
+  animation: none;
+}
+
+.streak.still[data-tier="13"]::before {
+  animation: none;
+  opacity: 0.55;
+}

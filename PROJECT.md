@@ -197,7 +197,7 @@ in the file. Neither is a credential, but neither needs indexing either.)*
 
 **The game is finished, playable, looks the way it was designed to, and now makes a noise.**
 All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twist mode work.
-175 tests pass. What remains is a playtest, then shipping.
+180 tests pass. What remains is a playtest, then shipping.
 
 | Area | State |
 |---|---|
@@ -1502,6 +1502,45 @@ Two things to settle before building it:
 the player is still holding the clock — this is an overlay in the `.board-wrap`, like the
 flame badge, never a layout row (§10.0).
 
+### 12.4.1 What was built, 2026-08-10
+
+`src/client/ui/streak.ts` plus one block in `game.css`. **DOM, not canvas** — it inherits
+`.board-wrap`'s absolute positioning like the flame badge, carries `pointer-events: none`
+throughout, and stays out of the frame budget (§10.3) completely.
+
+**One element that climbs, not one slam per tier.** A ten-box turn shows `Nice`, swaps to
+`Blazing`, then `Ruthless` as the boxes land. Firing a separate callout per rung would stack
+three animations mid-chain, which is noise rather than drama.
+
+**It clears itself after 850ms even while the chain is still running.** The word sits over
+the middle of the board and the player is mid-chain against the clock; parking it there for
+the whole run would hide the squares they are trying to tap. It cannot literally block a
+tap, but obscuring the board under a shot clock is the same problem wearing a different hat.
+
+⚠️ **The slam scales the WORD, not the wrapper.** `.streak` is `inset: 0`, so animating it
+would scale a box the size of the whole board out past the wrap — comfortably wider than a
+phone, and the cost is a horizontal scrollbar flashing on every big chain. Hence
+`.streak-word`. Verified at 375px: the longest word settles at 313px against a 359px board,
+and the page never scrolls sideways.
+
+**A haul is a TURN, not a line.** It accumulates across the run of continuation moves and
+resets when the turn changes hands — tracked in `room.ts` beside the broadcast handler
+(so it survives a view rebuild) and in `hotseat.ts`'s `onCommit`.
+
+**Still missing: the voice lines**, which are the owner's to produce and are gated on the
+§12.4 decisions about bundle size and iOS codec fallback.
+
+⚠️ **The thresholds remain unproven.** §12.4 asked for real games; two simulated players
+disagreed too sharply to pick from — the numbers and the reasoning are in `STREAK_TIERS`,
+and changing them is one line.
+
+**Testing note worth keeping.** The debug surface exposes `streak` in DEV
+(`window.__box.streak`), because a chain big enough to reach `WILDFIRE` takes a whole game
+to arrive by playing, which makes the top of the ladder untestable by hand. Also: **CSS
+animations do not advance in a hidden browser pane**, so any measurement taken mid-animation
+there reads the frozen first frame — two separate "the word does not fit" results turned out
+to be a transform stuck at 2.1x, not a bug.
+
 ## 13. Audio
 
 **Synthesised, not sampled** (revised 2026-08-03 — this section previously specified
@@ -1785,7 +1824,13 @@ have passed the sound that failed, which is the entire point of writing it.
          **picking Grand with four players and then dropping to two gives the size back** —
          otherwise Play starts a board the table is not allowed to choose. The online lobby
          re-checks the same thing on Start, for the same reason.
-      9. **Streak callouts.** See §12.4.
+      9. 🟡 **BUILT 2026-08-10 — streak callouts, minus the voice lines.** The word slams
+         in and climbs its own ladder as the chain grows; `streak.ts` plus one CSS block,
+         DOM rather than canvas so it cannot touch the frame budget or block a tap.
+         ⚠️ **The thresholds are still the original guesses.** §12.4 asked for them to be
+         checked against real games; simulation could not settle it (see `STREAK_TIERS`),
+         so they need your eyes. Voice lines remain yours to produce — they would be the
+         first sampled audio in the project and need the §12.4 decisions first.
 - [ ] **M8 — PWA + ship.** Manifest, service worker, icons, offline shell, custom domain.
       **Playtest with 6 real people.**
 

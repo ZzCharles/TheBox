@@ -46,6 +46,7 @@ import {
 import { CONFIRM_TAP_FROM_GRID } from "../render/layout.ts";
 import { createStage, type Stage } from "../render/stage.ts";
 import { createScoreboard, type Scoreboard } from "./scoreboard.ts";
+import { createStreak } from "./streak.ts";
 import { wordmark } from "./wordmark.ts";
 
 const INITIALS = "ABCDEFGH";
@@ -211,6 +212,11 @@ function startGame(
   const pill = root.querySelector<HTMLElement>("#pill")!;
   const toastEl = root.querySelector<HTMLElement>("#toast")!;
   const overlay = root.querySelector<HTMLElement>("#overlay")!;
+  const streak = createStreak(root.querySelector<HTMLElement>(".board-wrap")!);
+
+  /** Whose run of continuation moves is being counted, and how big it is. */
+  let streakPlayer = -1;
+  let streakHaul = 0;
 
   const scoreboard: Scoreboard = createScoreboard(
     root.querySelector<HTMLElement>("#scoreboard")!,
@@ -268,6 +274,7 @@ function startGame(
         syncView();
         renderer.draw(stage.ctx, performance.now(), view);
       },
+      streak,
     });
   }
 
@@ -396,6 +403,19 @@ function startGame(
         renderer.animateBurn(result.value.shrink, now);
       }
 
+      // A streak counts the whole turn, so it spans the run of continuation
+      // moves and resets when the turn changes hands (§12.4).
+      if (player !== streakPlayer) {
+        streakPlayer = player;
+        streakHaul = 0;
+      }
+      streakHaul += result.value.claimed.length;
+      if (result.value.claimed.length > 0) streak.climb(streakHaul);
+      if (!result.value.again) {
+        streakPlayer = -1;
+        streak.end();
+      }
+
       stage.requestFrame();
 
       beginTurn();
@@ -454,6 +474,7 @@ function startGame(
     detach();
     stage.destroy();
     scoreboard.destroy();
+    streak.dispose();
   }
 
   setActive(teardown);

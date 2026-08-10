@@ -150,6 +150,45 @@ export function shrinkArmFraction(playerCount: number): number {
     : SHRINK_ARM_FRACTION;
 }
 
+// --------------------------------------------------------- streak callouts ---
+
+/**
+ * Boxes claimed in a SINGLE TURN — the whole run of continuation moves, not one
+ * line — and the word that lands for it (§12.4). Highest tier that fits wins.
+ *
+ * ⚠️ **These thresholds are the owner's original guesses and are still unproven.**
+ * §12.4 asked for them to be checked against real games before building, so they
+ * were checked against simulated ones first. Two model players disagreed so
+ * sharply that no honest number could be picked from either:
+ *
+ * | policy                    | median haul | turns hitting 4+ |
+ * |---------------------------|-------------|------------------|
+ * | always takes, avoids opening | 10       | 100%             |
+ * | takes, opens carelessly half the time | 3 | 45%          |
+ *
+ * Competent play never scores below 6, so `Nice` would never fire; careless play
+ * clears 4 on nearly half of all scoring turns, which is the "fires constantly
+ * and stops meaning anything" failure §12.4 predicted. Real games decide it.
+ * Raising `at` is a one-line change and nothing else needs to move.
+ */
+export const STREAK_TIERS = [
+  { at: 4, word: "Nice" },
+  { at: 7, word: "Blazing" },
+  { at: 10, word: "Ruthless" },
+  { at: 13, word: "WILDFIRE" },
+] as const;
+
+export type StreakTier = (typeof STREAK_TIERS)[number];
+
+/** The tier a haul earns, or null when it is not worth saying anything. */
+export function streakTier(boxes: number): StreakTier | null {
+  let hit: StreakTier | null = null;
+  for (const tier of STREAK_TIERS) {
+    if (boxes >= tier.at) hit = tier;
+  }
+  return hit;
+}
+
 // --------------------------------------------------------------- palette ---
 
 /** Assigned in join order. Checked for separation under deuteranopia. */

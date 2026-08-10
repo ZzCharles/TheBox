@@ -13,6 +13,12 @@ export interface DebugSurface {
   state: () => unknown;
   layout: () => unknown;
   drawNow: () => void;
+  /**
+   * The streak callout (§12.4). Exposed because a chain big enough to reach
+   * WILDFIRE takes a whole game to arrive by playing, which makes the top of
+   * the ladder untestable by hand.
+   */
+  streak?: { climb: (boxes: number) => void; end: () => void; reset: () => void };
 }
 
 declare global {

@@ -63,6 +63,7 @@ import { CONFIRM_TAP_FROM_GRID } from "../render/layout.ts";
 import { createShatter, SHATTER } from "../render/shatter.ts";
 import { createStage, type Stage } from "../render/stage.ts";
 import { createScoreboard, type Scoreboard } from "./scoreboard.ts";
+import { createStreak } from "./streak.ts";
 import { wordmark } from "./wordmark.ts";
 
 const CLOCK_TICK_MS = 50;
@@ -174,6 +175,24 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     }
 
     room.turnDeadline = msg.turn.turnDeadline;
+
+    /*
+     * A streak is boxes claimed across a whole TURN, not by one line, so it
+     * accumulates over the run of continuation moves and resets when the turn
+     * changes hands. Tracked here rather than in the view because the view is
+     * rebuilt on a resync and this must survive that.
+     */
+    if (msg.playerIndex !== streakPlayer) {
+      streakPlayer = msg.playerIndex;
+      streakHaul = 0;
+    }
+    streakHaul += result.value.claimed.length;
+    if (result.value.claimed.length > 0) onStreak?.(streakHaul);
+    if (!result.value.again) {
+      streakPlayer = -1;
+      onStreakEnd?.();
+    }
+
     onMoveRendered?.(msg.lineId, result.value.claimed);
     if (msg.shrink) {
       onShrinkRendered?.(msg.shrink);
@@ -340,6 +359,14 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
   let retractPending: (() => void) | null = null;
   /** Set by the game view; drops tweens that a fresh snapshot has invalidated. */
   let resetAnimations: (() => void) | null = null;
+  /** Set by the game view; slams the streak word up as a chain climbs (§12.4). */
+  let onStreak: ((boxesThisTurn: number) => void) | null = null;
+  /** Set by the game view; tells the streak the turn has changed hands. */
+  let onStreakEnd: (() => void) | null = null;
+
+  /** Whose run of continuation moves is being counted, and how big it is. */
+  let streakPlayer = -1;
+  let streakHaul = 0;
 
   // ------------------------------------------------------------- view swap ---
 
@@ -353,6 +380,8 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       onShrinkRendered = null;
       retractPending = null;
       resetAnimations = null;
+      onStreak = null;
+      onStreakEnd = null;
       view = want;
       if (want === "connecting") mountConnecting();
       else if (want === "lobby") mountLobby();
@@ -1005,6 +1034,10 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       stage.requestFrame();
     };
 
+    const streak = createStreak(root.querySelector<HTMLElement>(".board-wrap")!);
+    onStreak = (boxesThisTurn) => streak.climb(boxesThisTurn);
+    onStreakEnd = () => streak.end();
+
     retractPending = () => {
       setPending(null);
       stage.requestFrame();
@@ -1016,6 +1049,11 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       renderer.reset();
       setPending(null);
       ghost = null;
+      // A snapshot can land mid-chain, and the haul it was counting no longer
+      // describes anything.
+      streakPlayer = -1;
+      streakHaul = 0;
+      streak.reset();
       stage.requestFrame();
     };
 
@@ -1350,6 +1388,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       detach();
       stage.destroy();
       scoreboard.destroy();
+      streak.dispose();
     };
   }
 
