@@ -59,6 +59,7 @@ import {
   type StartSequence,
 } from "./startSequence.ts";
 import { CONFIRM_TAP_FROM_GRID } from "../render/layout.ts";
+import { createShatter, SHATTER } from "../render/shatter.ts";
 import { createStage, type Stage } from "../render/stage.ts";
 import { createScoreboard, type Scoreboard } from "./scoreboard.ts";
 import { wordmark } from "./wordmark.ts";
@@ -585,6 +586,14 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         <div class="turn-banner" id="banner"></div>
         <div class="pill" id="pill"></div>
         <div class="toast" id="toast"></div>
+        <!--
+          The endgame shatter, over the WHOLE screen rather than over the board.
+          A square has to fly out of .board-wrap and land on a scoreboard panel,
+          which nothing inside the board canvas can do — it would clip at the
+          first edge. Absolutely positioned, so like the burn warning it holds
+          no row and costs the layout nothing (§10.0). See render/shatter.ts.
+        -->
+        <canvas class="shatter-layer" id="shatter" aria-hidden="true"></canvas>
         <div class="overlay" id="overlay" hidden></div>
       </div>`;
 
@@ -645,6 +654,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       ghostColor: players[myIndex]?.color ?? "#888",
       doomed: [],
       costPreview: [],
+      hiddenBoxes: null,
     };
 
     function syncBoardView() {
@@ -661,16 +671,259 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       boardView.doomed = isShrinkWarning(state) ? ringBoxes(state) : [];
       // Only ever your own price — showing everyone's would be unreadable.
       boardView.costPreview = costPreviewFor(state, myIndex);
+      boardView.hiddenBoxes = shatter.active ? shatter.hidden : null;
+    }
+
+    /*
+     * The endgame shatter (§12.3), on its own full-screen canvas.
+     *
+     * Driven from the BOARD's render loop rather than a second
+     * `requestAnimationFrame`, because two independent loops on one screen
+     * drift against each other and each keeps the other's battery drain alive.
+     * The stage already coalesces frame requests and already stops when nothing
+     * is animating; this just adds a second thing that can say "still moving".
+     */
+    const gameEl = root.querySelector<HTMLElement>(".game")!;
+    const shatterCanvas = root.querySelector<HTMLCanvasElement>("#shatter")!;
+    const shatterCtx = shatterCanvas.getContext("2d");
+    const shatter = createShatter();
+    /** Per-player counters during the flight. See `beginShatter`. */
+    let flightScores: number[] | null = null;
+    let crackPlayed = false;
+    let lastFrameAt = 0;
+
+    function sizeShatterLayer() {
+      if (!shatterCtx) return;
+      // Same DPR cap as the board: 3 costs fill rate for nothing visible.
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const rect = gameEl.getBoundingClientRect();
+      shatterCanvas.width = Math.round(rect.width * dpr);
+      shatterCanvas.height = Math.round(rect.height * dpr);
+      shatterCanvas.style.width = `${rect.width}px`;
+      shatterCanvas.style.height = `${rect.height}px`;
+      shatterCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    /**
+     * Where the pieces are flying FROM and TO, in overlay pixels.
+     *
+     * Measured off the live DOM rather than computed, because the scoreboard is
+     * a flex row whose panel widths depend on the player count, the longest
+     * name and the font that actually loaded. Anything we derived here would be
+     * a second opinion about a layout the browser has already decided.
+     */
+    function shatterGeometry() {
+      const gameRect = gameEl.getBoundingClientRect();
+      const boardRect = boardHost.getBoundingClientRect();
+      const avatars = root.querySelectorAll<HTMLElement>("#scoreboard .player .avatar");
+      const targets = players.map((_, index) => {
+        const rect = avatars[index]?.getBoundingClientRect();
+        if (!rect) return { x: gameRect.width / 2, y: 0 };
+        return {
+          x: rect.left + rect.width / 2 - gameRect.left,
+          y: rect.top + rect.height / 2 - gameRect.top,
+        };
+      });
+      return {
+        targets,
+        boardOffset: { x: boardRect.left - gameRect.left, y: boardRect.top - gameRect.top },
+      };
+    }
+
+    /**
+     * One frame of the whole screen, both layers.
+     *
+     * Named rather than inlined because `__box.drawNow()` has to be able to
+     * render exactly what the render loop renders. `requestAnimationFrame`
+     * never fires in a hidden tab, so hand-driving frames is the only way to
+     * inspect any of this from automation — and a `drawNow` that painted the
+     * board but not the shatter would report a board with holes in it as the
+     * finished picture.
+     */
+    function renderFrame(ctx: CanvasRenderingContext2D, now: number): boolean {
+      syncBoardView();
+      const board = renderer.draw(ctx, now, boardView);
+
+      let shattering = false;
+      if (shatter.active && shatterCtx) {
+        // Clamped: a hidden tab or a slow first frame otherwise hands the
+        // particles one enormous step and teleports the debris off screen.
+        const dt = lastFrameAt === 0 ? 16 : Math.min(64, now - lastFrameAt);
+        if (!crackPlayed && now - shatterStartedAt >= SHATTER.holdMs) {
+          crackPlayed = true;
+          play("crack");
+        }
+        shattering = shatter.update(now, dt, onPieceLanded);
+        shatterCtx.clearRect(0, 0, shatterCanvas.width, shatterCanvas.height);
+        shatter.draw(shatterCtx, now);
+        if (!shattering) finishShatter();
+      }
+      lastFrameAt = now;
+      return board || shattering;
     }
 
     const stage: Stage = createStage(
       boardHost,
-      (ctx, now) => {
-        syncBoardView();
-        return renderer.draw(ctx, now, boardView);
+      renderFrame,
+      (s) => {
+        renderer.resize(s.width, s.height, n);
+        if (shatter.active) {
+          sizeShatterLayer();
+          const { targets, boardOffset } = shatterGeometry();
+          shatter.remeasure(renderer.layout, targets, boardOffset);
+        }
       },
-      (s) => renderer.resize(s.width, s.height, n),
     );
+
+    /*
+     * The shatter's own little state machine.
+     *
+     * "done" is not the same as "played": a reduced-motion viewer, a spectator
+     * who arrived after the last box, and anyone reconnecting into a finished
+     * game all land on "done" without a frame being drawn. That is the point —
+     * the result must never be gated on an animation (§5), so every path that
+     * skips the sequence still has to arrive at the same place.
+     */
+    let shatterStage: "idle" | "running" | "crowning" | "done" = "idle";
+    let shatterStartedAt = 0;
+    let victoryTimer = 0;
+    /**
+     * The fanfare belongs to step 6, and step 6 is reached two different ways —
+     * through the sequence, or straight past it. One flag so it plays exactly
+     * once either way.
+     */
+    let fanfarePlayed = false;
+
+    function playFanfare() {
+      if (fanfarePlayed) return;
+      fanfarePlayed = true;
+      // No pitch scatter: this one is musical, and a detuned fanfare is a sour
+      // fanfare.
+      play("fanfare", { jitter: 0 });
+    }
+
+    function beginShatter() {
+      if (shatterStage !== "idle") return;
+      if (!state || !shatterCtx || motionReduced() || renderer.layout.cell <= 0) {
+        shatterStage = "done";
+        return;
+      }
+      shatterStage = "running";
+      shatterStartedAt = performance.now();
+      crackPlayed = false;
+      lastFrameAt = 0;
+
+      sizeShatterLayer();
+      const { targets, boardOffset } = shatterGeometry();
+
+      /*
+       * Counters start at `harvested`, NOT at zero.
+       *
+       * A square the fire took banked its point rounds ago and is not going to
+       * fly again (§17), so a count-up from zero would land short by exactly
+       * the number of tiles that ever burned — and it would land short on the
+       * one number the whole sequence exists to announce.
+       */
+      flightScores = players.map((_, index) => state!.harvested[index] ?? 0);
+      for (let index = 0; index < players.length; index++) {
+        scoreboard.land(index, flightScores[index] ?? 0);
+      }
+
+      shatter.begin(
+        {
+          boxes: state.boxes,
+          formerOwner: state.formerOwner,
+          colors: players.map((p) => p.color),
+          initials: players.map((p) => p.initial),
+        },
+        renderer.layout,
+        targets,
+        boardOffset,
+        shatterStartedAt,
+      );
+      gameEl.classList.add("shattering");
+      stage.requestFrame();
+    }
+
+    function onPieceLanded(player: number) {
+      // The engine already caps simultaneous voices at four and evicts the
+      // oldest, which is exactly the ducking §12.3 asks for — forty clacks in
+      // two seconds needs no special handling here.
+      play("clack");
+      if (!flightScores) return;
+      flightScores[player] = (flightScores[player] ?? 0) + 1;
+      scoreboard.land(player, flightScores[player]!);
+    }
+
+    function finishShatter() {
+      if (shatterStage !== "running") return;
+      shatterStage = "crowning";
+      flightScores = null;
+      gameEl.classList.remove("shattering");
+      shatterCtx?.clearRect(0, 0, shatterCanvas.width, shatterCanvas.height);
+
+      crownWinners();
+      playFanfare();
+
+      // The result waits out the celebration; see SHATTER.victoryMs.
+      victoryTimer = window.setTimeout(() => {
+        if (shatterStage !== "crowning") return;
+        shatterStage = "done";
+        showResult();
+      }, SHATTER.victoryMs);
+    }
+
+    /**
+     * Step 6: the winner's panel swells, a gold ring sweeps it, confetti goes
+     * up. Deliberately AFTER the last piece lands rather than alongside it —
+     * the count-up is the reveal, and celebrating over the top of it would step
+     * on the moment it exists to build.
+     */
+    function crownWinners() {
+      if (!state || motionReduced()) return;
+      const panels = root.querySelectorAll<HTMLElement>("#scoreboard .player");
+      for (const index of state.winners) {
+        const panel = panels[index];
+        if (!panel) continue;
+        panel.classList.add("crowned");
+        // Thrown from the panel, in the winner's own colour and the table's
+        // gold, so it reads as their celebration rather than as generic party.
+        const color = players[index]?.color ?? "#FFC24B";
+        for (let i = 0; i < 12; i++) {
+          const bit = document.createElement("span");
+          bit.className = "confetti";
+          const angle = (i / 12) * Math.PI * 2 + Math.random() * 0.4;
+          const reach = 34 + Math.random() * 30;
+          bit.style.setProperty("--dx", `${Math.cos(angle) * reach}px`);
+          // Biased upward: confetti is thrown, not dropped.
+          bit.style.setProperty("--dy", `${Math.sin(angle) * reach - 22}px`);
+          bit.style.setProperty("--spin", `${Math.round((Math.random() - 0.5) * 540)}deg`);
+          bit.style.background = i % 2 === 0 ? color : "#FFC24B";
+          bit.style.animationDelay = `${Math.round(Math.random() * 120)}ms`;
+          panel.appendChild(bit);
+        }
+        // The DOM does not clean itself up, and a rematch reuses these panels.
+        window.setTimeout(() => {
+          for (const bit of panel.querySelectorAll(".confetti")) bit.remove();
+        }, 1200);
+      }
+    }
+
+    /** A rematch puts a live board back; the endgame has to be rearmed for it. */
+    function resetShatter() {
+      shatter.reset();
+      window.clearTimeout(victoryTimer);
+      shatterStage = "idle";
+      flightScores = null;
+      crackPlayed = false;
+      fanfarePlayed = false;
+      gameEl.classList.remove("shattering");
+      shatterCtx?.clearRect(0, 0, shatterCanvas.width, shatterCanvas.height);
+      for (const panel of root.querySelectorAll<HTMLElement>("#scoreboard .player")) {
+        panel.classList.remove("crowned", "landed");
+        for (const bit of panel.querySelectorAll(".confetti")) bit.remove();
+      }
+    }
 
     const spectating = myIndex < 0;
 
@@ -765,7 +1018,10 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       }
 
       scoreboard.update({
-        scores: state.scores,
+        // While pieces are in the air the counters belong to the shatter —
+        // they climb from `harvested` to the real score as each one lands, and
+        // the clock tick must not overwrite them with the final total.
+        scores: flightScores ?? state.scores,
         benched: state.benched,
         charges: state.charges,
         armed: state.armed,
@@ -957,8 +1213,22 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         banner.onclick = null;
       }
 
-      if (room.phase === "results" && state.phase === "over") showResult();
-      else overlay.hidden = true;
+      /*
+       * The result waits for the shatter, and ONLY for the shatter.
+       *
+       * `beginShatter` is the thing that decides whether there is one — reduced
+       * motion, a spectator arriving after the fact and a mid-sequence reconnect
+       * all resolve to "done" immediately, and then this shows the overlay on
+       * the same tick it always did. Once shown, `showResult` keeps being called
+       * so the rematch vote count stays live.
+       */
+      if (room.phase === "results" && state.phase === "over") {
+        beginShatter();
+        if (shatterStage === "done") showResult();
+      } else {
+        overlay.hidden = true;
+        if (shatterStage !== "idle") resetShatter();
+      }
     };
 
     function showResult() {
@@ -967,9 +1237,9 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       if (overlay.hidden) {
         // Guarded by `overlay.hidden`, which is what makes this fire once at
         // the end of the game rather than on every rematch-vote refresh.
-        // No pitch scatter: this one is musical, and a detuned fanfare is a
-        // sour fanfare.
-        play("fanfare", { jitter: 0 });
+        // Usually already played, at the moment the winner was crowned — this
+        // covers the paths that never ran a sequence to crown anyone through.
+        playFanfare();
         const names = state.winners.map((w) => room!.players[w]?.name ?? "?").join(" & ");
         const top = state.scores[state.winners[0] ?? 0] ?? 0;
         overlay.hidden = false;
@@ -1019,7 +1289,6 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
      * happening, and it would hide a live board behind a logo.
      */
     let startSeq: StartSequence | null = null;
-    const gameEl = root.querySelector<HTMLElement>(".game")!;
     if (state.linesPlaced === 0 && state.phase === "playing" && !motionReduced()) {
       gameEl.classList.add("entering");
       // Armed for the future: the board stays empty until the mark has landed.
@@ -1040,10 +1309,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       exposeDebug({
         state: () => state,
         layout: () => renderer.layout,
-        drawNow: () => {
-          syncBoardView();
-          renderer.draw(stage.ctx, performance.now(), boardView);
-        },
+        drawNow: () => renderFrame(stage.ctx, performance.now()),
       });
     }
 

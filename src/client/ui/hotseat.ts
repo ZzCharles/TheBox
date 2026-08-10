@@ -189,6 +189,10 @@ function startGame(
     ghostColor: players[0]!.color,
     doomed: [],
     costPreview: [],
+    // Hot seat has no endgame shatter: it is the try-it-alone mode on one
+    // device, and the sequence is built around flying a square to its owner's
+    // panel in a room of people watching it arrive.
+    hiddenBoxes: null,
   };
 
   function syncView() {

@@ -100,7 +100,21 @@
       "Bash(curl -s https://box.charlesbobby253.workers.dev/assets/index-DDokh2p6.js)",
       "Bash(gh --version)",
       "Bash(gh auth *)",
-      "Bash(git merge *)"
+      "Bash(git merge *)",
+      "Bash(git grep *)",
+      "Read(//c/Program Files/Git/mingw64/bin/**)",
+      "Bash(winget --version)",
+      "Bash(grep -n \"^#\\\\{1,4\\\\} \" PROJECT.md)",
+      "Bash(sed -n '/export interface PlayerView/,/^}/p;/export interface BoardView/,/^}/p' src/client/render/boardRenderer.ts)",
+      "Bash(sed -n '/box: {/,/},/p' src/shared/constants.ts)",
+      "Bash(sed -n '/\\\\.player\\\\.winner/,/^}/p' src/client/styles/game.css)",
+      "Bash(sed -n '/^\\\\.overlay {/,/^}/p' src/client/styles/game.css)",
+      "Bash(sed -n '/^\\\\.game {/,/^}/p' src/client/styles/game.css)",
+      "Bash(awk 'NR>=380 && NR<=445 && /function drawBoxes|drawBoxes\\\\\\(/' src/client/render/boardRenderer.ts)",
+      "Bash(perl -0pi -e 's/gridSize: \\(\\\\w+\\), mode/n: $1, mode/g' src/client/render/shatter.test.ts)",
+      "Bash(grep -nE '^\\\\s+\\\\|?\\\\s*\\\\{?\\\\s*$|t: \"')",
+      "Bash(perl -0pi -e ' *)",
+      "Bash(perl -0pi -e 's/43 tests/42 tests/g' PROJECT.md)"
     ]
   }
 }

@@ -1148,6 +1148,129 @@ input:focus-visible {
   translate: -50% -0.35rem;
 }
 
+/* Endgame shatter ------------------------------------------------------- */
+
+/*
+ * The layer the pieces fly on. It covers the whole screen because a square has
+ * to leave the board and land on a scoreboard panel, which nothing clipped to
+ * .board-wrap can do. Absolutely positioned, so it holds no row and cannot
+ * resize the board (§10.0) — the same trick .burn-warning plays.
+ */
+.shatter-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+
+/*
+ * Step 1 of §12.3: everything stops and the scene drops back 20%.
+ *
+ * The dim is applied to the ROWS, never to .shatter-layer — that is the whole
+ * point of the exclusion. The board and HUD recede while the pieces coming off
+ * them stay at full brightness, so the flight reads as the only lit thing on
+ * screen rather than as the whole picture fading together.
+ */
+.game.shattering > :not(.shatter-layer):not(.overlay) {
+  filter: brightness(0.8);
+  transition: filter 380ms ease;
+}
+
+/* Step 4: a piece has landed, and the panel takes the hit. */
+.player.landed {
+  animation: panel-land 160ms ease-out;
+}
+
+@keyframes panel-land {
+  35% {
+    translate: 0 4px;
+  }
+}
+
+/*
+ * Step 6, the victory beat. Applied when the flight is over, so it never
+ * competes with the pieces still arriving.
+ */
+.player.crowned {
+  scale: 1.08;
+  transition: scale 320ms cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+/* A single gold sweep around the winner's avatar. Once, not a loop. */
+.player.crowned .avatar::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0turn,
+    transparent 0turn,
+    var(--dot) 0.1turn,
+    transparent 0.28turn
+  );
+  /* Hollow it out into a ring — a filled disc would bury the initial. */
+  mask: radial-gradient(closest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  animation: crown-sweep 900ms ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes crown-sweep {
+  from {
+    rotate: 0turn;
+    opacity: 1;
+  }
+  to {
+    rotate: 1turn;
+    opacity: 0;
+  }
+}
+
+/*
+ * Confetti, thrown from the panel edges. Each piece carries its own --dx/--dy/
+ * --spin, set inline where they are created, so one keyframe serves all of them
+ * and the burst is not twelve copies of the same arc.
+ */
+.confetti {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 5px;
+  height: 9px;
+  border-radius: 1px;
+  pointer-events: none;
+  animation: confetti-fly 900ms ease-out forwards;
+}
+
+@keyframes confetti-fly {
+  from {
+    translate: 0 0;
+    rotate: 0deg;
+    opacity: 1;
+  }
+  to {
+    translate: var(--dx) var(--dy);
+    rotate: var(--spin);
+    opacity: 0;
+  }
+}
+
+/*
+ * Reduced motion skips the sequence entirely in `room.ts` — this is the
+ * belt-and-braces half, for the DOM beats that are pure CSS and would otherwise
+ * still fire when the canvas half was never started.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .player.landed,
+  .player.crowned .avatar::after,
+  .confetti {
+    animation: none;
+  }
+
+  .confetti {
+    display: none;
+  }
+}
+
 /* Result overlay -------------------------------------------------------- */
 
 .overlay {
@@ -1157,6 +1280,12 @@ input:focus-visible {
   place-items: center;
   background: rgb(11 13 18 / 82%);
   backdrop-filter: blur(6px);
+  /*
+   * Above the shatter layer. Without this the canvas (z-index 6) would paint
+   * over the result, because a positioned element with `z-index: auto` loses to
+   * any positive z-index regardless of DOM order.
+   */
+  z-index: 10;
 }
 
 .overlay[hidden] {

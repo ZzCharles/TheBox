@@ -194,6 +194,15 @@ export interface BoardView {
    * price is only worth showing while it is payable.
    */
   costPreview: number[];
+  /**
+   * Squares the endgame shatter has taken ownership of, which this renderer
+   * must therefore stop drawing (`shatter.ts`).
+   *
+   * A flying piece has left board space entirely, so it cannot be drawn from
+   * here — and if both layers drew it, a square would sit on the board while
+   * its own copy flew off it. Null except during the endgame.
+   */
+  hiddenBoxes: ReadonlySet<number> | null;
 }
 
 export interface BoardRenderer {
@@ -394,7 +403,7 @@ export function createBoardRenderer(
   function drawBoxes(
     ctx: CanvasRenderingContext2D,
     now: number,
-    { state, players }: BoardView,
+    { state, players, hiddenBoxes: taken }: BoardView,
   ) {
     const cell = layout.cell;
     const inset = cell * PAINT.box.inset;
@@ -433,6 +442,7 @@ export function createBoardRenderer(
     for (let box = 0; box < state.boxes.length; box++) {
       const owner = state.boxes[box];
       if (owner === UNCLAIMED) continue;
+      if (taken?.has(box)) continue; // the shatter is drawing this one
       if (isPulsing(box, owner)) {
         pulsing.push(box);
         continue;
@@ -533,6 +543,7 @@ export function createBoardRenderer(
     for (let box = 0; box < state.boxes.length; box++) {
       const owner = state.boxes[box];
       if (owner === UNCLAIMED || isPulsing(box, owner)) continue;
+      if (taken?.has(box)) continue;
 
       /*
        * ASH keeps its letter; SPENT does not. Opposite meanings: a square the

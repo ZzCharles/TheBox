@@ -53,6 +53,30 @@ describe("sfx waveforms", () => {
 
     assert.ok(peak("blip") < peak("tick"));
     assert.ok(peak("tick") < peak("click"));
-    assert.ok(peak("click") < peak("fanfare"));
+    assert.ok(peak("click") < peak("crack"));
+    assert.ok(peak("crack") < peak("fanfare"));
+  });
+
+  it("gives crack a tail, because the fracture is supposed to travel", () => {
+    // The aftershocks at 58/104/157/206ms are what make this a crack spreading
+    // along the box boundaries rather than a single thump (§12.3 step 2). They
+    // are quiet by design and easy to lose while tuning the rip on top of them,
+    // and losing them is inaudible in a waveform view — hence a test.
+    const sr = 48_000;
+    const buffer = renderSfx("crack", sr);
+    const at = (seconds: number) => Math.round(seconds * sr);
+
+    let head = 0;
+    let tail = 0;
+    for (let i = 0; i < buffer.length; i++) {
+      const s = Math.abs(buffer[i]!);
+      if (i < at(0.04)) head = Math.max(head, s);
+      else if (i >= at(0.05) && i <= at(0.22)) tail = Math.max(tail, s);
+    }
+
+    assert.ok(tail > head * 0.05, `crack's aftershocks are inaudible (${tail} vs ${head})`);
+    // And they are still aftershocks — a tail louder than the break would read
+    // as four separate sounds instead of one event.
+    assert.ok(tail < head, `crack's tail (${tail}) outweighs the break itself (${head})`);
   });
 });

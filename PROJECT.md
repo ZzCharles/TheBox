@@ -2,9 +2,10 @@
 
 > **Name:** **Tiki** (was BOX; renamed 2026-08-02).
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M6 complete bar a playtest. M7 (endgame shatter) is next.
-> Everything M6 promised is built: visuals, audio, the Twist burn, the start sequence.
-> **Last updated:** 2026-08-03
+> **Status:** M0–M7 complete bar a playtest. M8 (PWA + ship) is next.
+> Everything M6 and M7 promised is built: visuals, audio, the Twist burn, the start
+> sequence, and the endgame shatter.
+> **Last updated:** 2026-08-10
 
 ---
 
@@ -30,17 +31,17 @@ This file stays the engineering reference.
 
 ---
 
-## 0.1 START HERE — handoff, 2026-08-03
+## 0.1 START HERE — handoff, 2026-08-10
 
-**The game is feature-complete through M6 and has never been seen working by a human being
+**The game is feature-complete through M7 and has never been seen working by a human being
 end to end.** Everything below was verified by instrumentation, not by eyes. That is the
-single most important thing to know before you change anything.
+single most important thing to know before you change anything. The debt has grown, not
+shrunk: there are now two set-piece animations nobody has watched.
 
 ### The next step, in one line
 
-**Playtest on real phones**, then build **M7, the endgame shatter**. Do not start M7 blind:
-three of this project's best decisions came out of playtests, and four separate bugs were
-found in the last one.
+**Playtest on real phones.** It is now two milestones overdue, and it is the only item on
+this list that has ever changed a design decision.
 
 ### Roadmap
 
@@ -48,8 +49,8 @@ found in the last one.
 |---|---|---|
 | M0–M5 | ✅ | Toolchain, rules engine, renderer, networking, resilience, Twist mode. |
 | M6 | ✅ **bar a playtest** | Visuals, audio, the Twist burn, the start sequence. All built. None watched. |
-| **M7** | ⬅ **next code** | Endgame shatter: crack, every box flies to its owner's panel, count-up, victory. `clack` and `fanfare` are already built and unused, waiting for exactly this. Spec in §12.3. |
-| M8 | after that | PWA: manifest, service worker, icons, offline shell, custom domain. Then ship. |
+| M7 | ✅ **bar a playtest** | Endgame shatter: crack, every box flies to its owner's panel, count-up, crown. Traced frame by frame on four real games; seen by nobody. §12.3. |
+| **M8** | ⬅ **next code** | PWA: manifest, service worker, icons, offline shell, custom domain. Then ship. |
 
 Smaller things worth doing whenever they suit:
 
@@ -65,12 +66,16 @@ Smaller things worth doing whenever they suit:
 
 Verified by instrumentation, in a browser, against real game state: the audio engine and
 every waveform, the burn's full timeline, the pending-move recovery, the flame badge, the
-Wildcard nudge, the start sequence, and every guard around them (reduced motion, rejoining
-mid-game, spectators).
+Wildcard nudge, the start sequence, the endgame shatter, and every guard around them
+(reduced motion, rejoining mid-game, spectators).
 
 **Never seen by a human:** all of it, visually. No screenshot exists of the burn, the flame
-badge, the nudge or the start sequence. Timing, geometry, colour and state are confirmed;
-*how it looks and feels* is entirely unconfirmed.
+badge, the nudge, the start sequence or the shatter. Timing, geometry, colour and state are
+confirmed; *how it looks and feels* is entirely unconfirmed.
+
+⚠️ **Screenshots are not the missing step — a phone is.** The preview pane does not
+composite (see the gotchas below), so no automated screenshot of any of this is possible,
+and chasing one is a dead end that has now been walked twice.
 
 ### ⚠️ Testing gotchas that cost real time this session
 
@@ -95,6 +100,17 @@ alarm and a wasted detour.
    verified and it sidesteps the whole UI.
 5. **Confirm-tap is ON from 10×10 up** (`CONFIRM_TAP_FROM_GRID`). Synthetic taps on Large or
    Grand need *two* taps per line, or nothing happens and it looks like input is broken.
+6. **`window.__box` survives a room change.** It is re-exposed when the game view mounts, so
+   after `location.hash = '#/r/NEW'` it still points at the OLD room's mirror for a moment.
+   A probe that waits with `while (!window.__box)` therefore never waits at all, and drives
+   a finished game instead of the new one — which looks exactly like a game that refuses to
+   start. Set `window.__box = undefined` *before* navigating, and assert on `state().n`.
+7. **A tab that joins before `start` is a PLAYER, not a spectator**, and the whole match then
+   stalls waiting for moves it will never make. Join *after* `start` to spectate — which is
+   also the easiest way to watch a set-piece, since a spectator needs no synthetic input.
+8. **Drive the turn order off the replayed mirror, not off the wire.** Turn order is shuffled
+   at start and there is no message announcing it (§7). `state().turnOrder[state().turnPtr]`
+   is the answer; guessing gets a stream of `not-your-turn`.
 
 ### ⚠️ Where the code actually is
 
@@ -124,7 +140,7 @@ in the file. Neither is a credential, but neither needs indexing either.)*
 
 **The game is finished, playable, looks the way it was designed to, and now makes a noise.**
 All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twist mode work.
-143 tests pass. What remains is the things that MOVE.
+155 tests pass. What remains is a playtest, then shipping.
 
 | Area | State |
 |---|---|
@@ -133,10 +149,10 @@ All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twis
 | Board rendering + input | ✅ Done, design values applied, 0.7 ms/frame |
 | Twist mode | ✅ Done, with the shrink floor |
 | Screens: landing, settings, lobby, game | ✅ Done — full colour, type and behaviour pass |
-| **Sound** | ✅ Done — seven synthesised sounds, 36 tests. `clack` is built but unused until M7. |
+| **Sound** | ✅ Done — eight synthesised sounds, 42 tests. All eight are in use. |
 | **Twist burn** | ✅ Done — fuse, ignition, spreading front, flame, ash. 2.6 ms worst frame. |
 | **Start sequence** | ✅ Mark draws, flares, hits, shakes; board rolls in |
-| **Endgame sequence** | ❌ Winner overlay only, no shatter |
+| **Endgame shatter** | ✅ Done — crack, flight, count-up, crown. 5.4 ms worst frame on 12×12 |
 | **PWA / installable** | ❌ Not started |
 | **Deployed** | ✅ https://box.charlesbobby253.workers.dev |
 
@@ -491,32 +507,51 @@ JSON over WebSocket. Every message is `{ t: string, ...payload }`. Include
 
 | `t` | Payload | Notes |
 |---|---|---|
-| `hello` | `clientId, name, resumeToken?` | `clientId` persisted in localStorage |
-| `configure` | `mode, maxPlayers, gridSize?, turnSeconds` | host only |
+⚠️ **This table drifted from the code and cost an hour at M7.** `src/shared/protocol.ts` is
+the truth; what follows is now checked against it. The traps, specifically: the buy and arm
+messages are **`buy`** and **`arm`**, not `buyWildcard`/`armWildcard`; `hello` **requires**
+`protocolVersion` and is rejected without it; and **there is no `gameStart` message at all**
+— a game starting is a `room` broadcast whose `phase` is `playing`.
+
+| `t` | Payload | Notes |
+|---|---|---|
+| `hello` | `protocolVersion, clientId, name, ownerKey?, colorIndex?` | `clientId` persisted in localStorage. Wrong/missing version → `bad-protocol` |
+| `configure` | `mode?, gridSize?` | host only |
 | `start` | — | host only |
 | `move` | `lineId, turnSeq` | `turnSeq` makes it idempotent |
-| `buyWildcard` | — | twist mode, own turn, pre-move |
-| `armWildcard` | — | spends a charge; next `move` won't end the turn |
-| `rematch` | `ready: boolean` | |
+| `buy` | — | twist mode, own turn, pre-move |
+| `arm` | — | spends a charge; next `move` won't end the turn |
+| `rematch` | — | a vote; the server tracks each player's `ready` |
+| `wake` | — | un-park yourself |
 | `ping` | `t0` | clock sync |
 
 ### Server → Client
 
+**There are seven, not the thirteen this table used to list.** Most of the missing ones were
+never built as separate messages: the roster, the phase, the rematch votes and the bench
+state all ride on `room`, and a shrink rides on the `move` that caused it. Corrected against
+`protocol.ts` at M7.
+
 | `t` | Payload |
 |---|---|
-| `welcome` | `you, room, snapshot, protocolVersion` |
-| `roomUpdate` | `players[], spectators[], config, phase` |
-| `gameStart` | `gridSize, mode, turnOrder[], firstPlayerId, turnDeadline` |
-| `moveApplied` | `lineId, playerId, claimedBoxIds[], scores, nextPlayerId, turnDeadline, turnSeq` |
-| `turnSkipped` | `playerId, reason, nextPlayerId, turnDeadline` |
-| `benchChanged` | `playerId, benched: boolean` |
-| `wildcardBought` | `playerId, cost, burnedBoxIds[], charges, scores` |
-| `wildcardArmed` | `playerId, charges` |
-| `shrinkWarning` | `doomedBoxIds[], collapsesAtTurn` |
-| `shrinkApplied` | `removedBoxIds[], removedLineIds[], harvested[], newBounds` |
-| `gameOver` | `finalScores[], winnerId, boxOwners[], spentBoxIds[]` |
-| `rematchState` | `readyIds[], promotedSpectators[]` |
+| `welcome` | `you, serverNow, room` |
+| `room` | `room: RoomSnapshot, serverNow` — roster, phase, config, rematch votes |
+| `move` | `playerIndex, lineId, claimed[], scores[], again, wildcardFired, gameOver, winners[], shrink, serverNow, turn` |
+| `skip` | `playerIndex, reason: timeout\|disconnect, benched, paused, gameOver, winners[], shrink, serverNow, turn` |
+| `wildcard` | `playerIndex, action: bought\|armed, burned[], charges, scores[]` |
+| `pong` | `t0, serverNow` |
 | `error` | `code, message` |
+
+Three consequences worth holding onto:
+
+- **The end of the game is a flag on a move, not a message.** `gameOver: true` plus
+  `winners[]` arrives on the `move` (or `skip`) that finished it. Nothing called `gameOver`
+  is ever sent, and nothing waits five seconds for a client animation — see §12.3.
+- **A collapse rides on the move that triggered it**, in `shrink: ShrinkOutcome | null`.
+  There is no separate warning message either; the two rounds of notice in §9.2 are derived
+  client-side from the replayed state.
+- **The turn lives in one `turn: TurnInfo` object** on both `move` and `skip`, rather than
+  in loose `nextPlayerId` / `turnDeadline` fields.
 
 **Snapshot encoding.** Plain number arrays, not base64'd typed arrays (revised at M3).
 A 10×10 board is ~320 small integers, sent only on join and reconnect, and it compresses
@@ -775,8 +810,16 @@ Two things keep the full redraw cheap, and both matter more than layer splitting
 The canvas is sized `cssPx * devicePixelRatio`, capped at DPR 2 (DPR 3 costs fill rate for
 a difference nobody can see on a 6" screen).
 
-**M7 revisit:** the shatter needs per-box tiles moving independently. Add a second canvas
-*then*, if measurement says to — the stage abstraction already supports it.
+**M7 did add the second canvas**, and not for the reason this note expected. It was never a
+performance decision — a full 12×12 shatter costs 1.8 ms median, well inside one layer's
+budget. It is a *clipping* one: the pieces have to fly out of `.board-wrap` and land on DOM
+scoreboard panels, and anything drawn on the board canvas stops existing at its edge. The
+new layer is absolutely positioned over the whole `.game` element and holds no row, so
+§10.0 is untouched. See `render/shatter.ts`.
+
+Both layers are driven from **one** `requestAnimationFrame` loop — the board stage's — which
+is also why `__box.drawNow()` renders both. Two loops on one screen drift against each other
+and each keeps the other's battery cost alive.
 
 ### 10.2 Input
 
@@ -1022,6 +1065,27 @@ needed here when it lands.*
 
 ### 12.3 End
 
+✅ **Built at M7** (`src/client/render/shatter.ts`). Measured on a Large board — 144 boxes,
+every one claimed — at **1.8 ms median, 3.3 ms p95, 5.4 ms worst frame** against the
+16.67 ms budget. Traced end to end on a real finished game: hold silent and still, crack at
+600ms, counters climbing 0 → 16/17 → 47/48 → **72/72**, crown, then the result.
+
+Three things about it that are not obvious from the steps below:
+
+- **It runs on a SECOND canvas**, absolutely positioned over the whole `.game` element. A
+  piece has to leave `.board-wrap` and land on a DOM scoreboard panel; anything drawn inside
+  the board canvas clips at the first edge. This is the M7 revisit §10.1 anticipated. It
+  holds no row, so it cannot resize the board (§10.0).
+- **Only live owned squares fly.** Ash dissolves quietly and a Wildcard square crumbles
+  straight down, because an ash tile banked its point into `harvested` rounds ago (§17) and
+  flying it again would overshoot the final score by exactly the number of tiles that ever
+  burned. For the same reason **each counter starts at `harvested[p]`, not at zero.**
+  `planShatter()` is pure and this is what its tests assert.
+- **The server does none of it.** There is no `SETTLING` phase; the room goes straight to
+  `results` and the client, which has already replayed to the final state, simply holds its
+  own result overlay back until the sequence finishes. Rematch is a unanimous vote, so
+  nobody can restart the game out from under someone still watching.
+
 1. **Hold 600ms.** Everything stops. Background dims 20%. Silence.
 2. **Crack (250ms):** fracture lines trace along every box boundary, bright then fading.
    Low `crack` sfx.
@@ -1038,6 +1102,17 @@ needed here when it lands.*
    bursts from the panel edges. `fanfare`.
 7. **Rematch** button rises from the bottom. Shows `3/6 ready`. The lobby stays intact —
    the same room code, same players, spectators promoted.
+
+⚠️ **Step 6 happens BEFORE the result overlay, not with it.** The overlay is a full-screen
+blurred scrim over the scoreboard, so raising it the instant the last piece lands buries the
+crown and the confetti it is supposed to follow. The celebration gets `SHATTER.victoryMs`
+(900ms) on the visible scoreboard and the rematch screen arrives after it.
+
+⚠️ **Every path that skips the sequence must still reach the result.** Reduced motion, a
+spectator arriving after the last box, and a reconnect mid-flight all resolve straight to
+"done" and show the overlay on the tick they always did — verified with `reduceMotion` on,
+where the endgame needs no frames drawn at all. An animation must never be the only route to
+the screen that says who won.
 
 ---
 
@@ -1057,11 +1132,18 @@ number rather than opening a DAW.
 | `whoosh` | Board shrink | Noise behind a sweeping cutoff | 400ms |
 | `clack` | Endgame piece lands | Tile on tile, harder than `click` | 60ms |
 | `blip` | 4s shot-clock warning | Quiet, high, 2ms attack | 50ms |
+| `crack` | Endgame board fractures | Low body, a rip, four aftershocks | 250ms |
 | `fanfare` | Victory | Triad arriving a note at a time | 1.2s |
+
+**`crack` was added at M7**, because §12.3 step 2 had always named a sound this
+table did not contain. Its four aftershocks at 58/104/157/206ms are the fracture
+travelling out along the box boundaries — the sound doing what the picture does —
+and they have their own test, because they are quiet enough to lose while tuning
+the rip on top of them and their absence is invisible in a waveform view.
 
 `waveforms.ts` is **pure** — a name and a sample rate in, a `Float32Array` out — for the
 same reason `rules.ts` is: it makes the part with the interesting logic testable under
-`node --test`. 36 tests assert every sound is the length the table says, never clips, is
+`node --test`. 42 tests assert every sound is the length the table says, never clips, is
 never silence, renders identically twice, and **starts and ends on an exactly zero sample**.
 That last one is not fussiness: a buffer with a non-zero endpoint is a step change in the
 speaker, which is an audible click layered on top of the sound you designed, loudest on
@@ -1091,8 +1173,10 @@ gain, and persists in `box.prefs` (people play this in public).
 **One mechanic, one sound.** Buying a Wildcard makes a noise; arming it does not, because
 the badge going bright already says so and a second sound would blur what either means.
 
-⚠️ `clack` is built, tested and **currently unused** — it belongs to the endgame shatter in
-M7. It is here because it is part of the vocabulary, not because anything plays it yet.
+`clack` and `fanfare` both belong to the endgame and both now fire there: `clack` on every
+piece that lands, `fanfare` on the crown. The engine's four-voice cap with oldest-evicted is
+exactly the ducking §12.3 asks for, so 144 clacks in two and a half seconds needed no
+special handling at the call site.
 
 ---
 
@@ -1196,9 +1280,16 @@ M7. It is here because it is part of the vocabulary, not because anything plays 
          the right length when you are waiting to take your turn. The tables to turn are
          `SFX_SECONDS`/`SFX_PEAK` in `waveforms.ts`, `BURN` in `burn.ts`, and the timing
          table in `startSequence.ts`.
-- [ ] **M7 — Endgame sequence.** Crack, flight, clacks, count-up, victory. `clack` and
-      `fanfare` already exist; `fanfare` fires on the winner overlay today and should move
-      to step 6 of §12.3 when the sequence lands.
+- [x] **M7 — Endgame sequence.** ✅ 2026-08-10. Crack, flight, clacks, count-up, victory.
+      A second full-screen canvas (`render/shatter.ts`), an eighth sound (`crack`), and
+      `planShatter()` split out pure with 6 tests — including the one that matters, that a
+      count-up from `harvested[p]` lands on exactly `scores[p]` in a twist game that really
+      collapsed. `fanfare` moved off the overlay and onto the crown, as this line asked.
+      Verified against four complete games driven over real sockets: hold, crack at 600ms,
+      counters climbing to the true final score, crown, then the result — plus the
+      reduced-motion path, which reaches the result with no frames drawn at all.
+      **1.8 ms median / 5.4 ms worst frame** on a full 12×12. No console errors.
+      *Never watched by a human. Nobody has seen 144 squares fly.*
 - [ ] **M8 — PWA + ship.** Manifest, service worker, icons, offline shell, custom domain.
       **Playtest with 6 real people.**
 

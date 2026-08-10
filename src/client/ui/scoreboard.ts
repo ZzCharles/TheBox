@@ -33,6 +33,15 @@ export interface ScoreboardState {
 
 export interface Scoreboard {
   update(state: ScoreboardState): void;
+  /**
+   * An endgame piece has just landed on this player's panel (§12.3 step 4):
+   * set the counter and knock the panel back 4px.
+   *
+   * Separate from `update` because it has to land on the same frame the piece
+   * does. `update` runs on the clock tick, which is an age in animation terms —
+   * routing this through it would put every bump visibly behind its own clack.
+   */
+  land(index: number, score: number): void;
   destroy(): void;
 }
 
@@ -115,6 +124,18 @@ export function createScoreboard(
           ? String(RING_CIRCUMFERENCE * (1 - state.clockFraction))
           : String(RING_CIRCUMFERENCE);
       }
+    },
+
+    land(index, score) {
+      const p = panels[index];
+      if (!p) return;
+      p.score.textContent = String(score);
+      // Restart the keyframe. Without the reflow between removing and adding,
+      // the browser coalesces both into "no change" and only the first piece to
+      // land on a panel ever bumps it.
+      p.panel.classList.remove("landed");
+      void p.panel.offsetWidth;
+      p.panel.classList.add("landed");
     },
 
     destroy() {

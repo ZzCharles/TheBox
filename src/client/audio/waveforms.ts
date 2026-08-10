@@ -1,5 +1,5 @@
 /**
- * The seven sounds, synthesised sample by sample.
+ * The eight sounds, synthesised sample by sample.
  *
  * PURE. No Web Audio, no DOM — a name and a sample rate in, a mono
  * `Float32Array` out. That is what makes them testable under `node --test`
@@ -16,7 +16,15 @@
  * `tick` is the same 45 milliseconds every time it is rendered on every device.
  */
 
-export type SfxName = "tick" | "click" | "thunk" | "whoosh" | "clack" | "blip" | "fanfare";
+export type SfxName =
+  | "tick"
+  | "click"
+  | "thunk"
+  | "whoosh"
+  | "clack"
+  | "blip"
+  | "crack"
+  | "fanfare";
 
 export const SFX_NAMES: readonly SfxName[] = [
   "tick",
@@ -25,6 +33,7 @@ export const SFX_NAMES: readonly SfxName[] = [
   "whoosh",
   "clack",
   "blip",
+  "crack",
   "fanfare",
 ] as const;
 
@@ -36,6 +45,7 @@ export const SFX_SECONDS: Record<SfxName, number> = {
   whoosh: 0.4,
   clack: 0.06,
   blip: 0.05,
+  crack: 0.25,
   fanfare: 1.2,
 };
 
@@ -52,6 +62,10 @@ const SFX_PEAK: Record<SfxName, number> = {
   whoosh: 0.5,
   clack: 0.62,
   blip: 0.3,
+  // Once a game, and it is the beat the whole endgame hangs off — the board
+  // breaking should be the second-loudest thing in the set, under the fanfare
+  // it is setting up.
+  crack: 0.8,
   fanfare: 0.85,
 };
 
@@ -214,6 +228,53 @@ const GENERATORS: Record<SfxName, Generator> = {
       const env = Math.min(1, t / 0.002) * decay(t, 0.016);
       out[i] =
         (Math.sin(2 * Math.PI * 1760 * t) * 0.8 + Math.sin(2 * Math.PI * 3520 * t) * 0.15) * env;
+    }
+  },
+
+  /**
+   * The board fracturing, once, at the end of the game.
+   *
+   * Three parts, and the third is the one that makes it read as a CRACK rather
+   * than as a drum: a low body dropping away underneath, a hard rip of filtered
+   * noise on top, and then four progressively smaller aftershocks racing off
+   * into the tail. Those are the fracture lines running out along the box
+   * boundaries — the sound is doing the same thing the picture is (§12.3 step
+   * 2), and it is why this is 250ms rather than the 60ms `clack` is.
+   */
+  crack(out, sr) {
+    const rand = noise(0xc4ac41);
+    const lo = lowpass(sr);
+    const lo2 = lowpass(sr);
+    // Each one is quieter, later and shorter than the last, so the fracture
+    // sounds like it is travelling away rather than repeating in place.
+    const shocks = [
+      { at: 0.058, gain: 0.5, tau: 0.012 },
+      { at: 0.104, gain: 0.34, tau: 0.009 },
+      { at: 0.157, gain: 0.22, tau: 0.007 },
+      { at: 0.206, gain: 0.13, tau: 0.005 },
+    ];
+    let phase = 0;
+    for (let i = 0; i < out.length; i++) {
+      const t = i / sr;
+      const n = rand();
+
+      // The body: low and falling, which is what "low crack" means here.
+      phase += (2 * Math.PI * (150 - 95 * Math.min(1, t / 0.12))) / sr;
+      const body = Math.sin(phase) * decay(t, 0.075) * 0.9;
+
+      // The rip. A closing cutoff turns a bright snap into a dry one over ~40ms.
+      const rip = (n - lo(n, 380 + 5200 * decay(t, 0.02))) * decay(t, 0.016) * 0.85;
+
+      // The aftershocks share one filter, so they sit in the same room as the
+      // rip instead of arriving as four unrelated noises.
+      let after = 0;
+      const bright = n - lo2(n, 2200);
+      for (const s of shocks) {
+        const st = t - s.at;
+        if (st > 0) after += bright * decay(st, s.tau) * s.gain;
+      }
+
+      out[i] = body + rip + after * 0.55;
     }
   },
 
