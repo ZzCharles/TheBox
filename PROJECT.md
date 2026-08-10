@@ -2,9 +2,8 @@
 
 > **Name:** **Tiki** (was BOX; renamed 2026-08-02).
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M7 complete bar a playtest. M8 (PWA + ship) is next.
-> Everything M6 and M7 promised is built: visuals, audio, the Twist burn, the start
-> sequence, and the endgame shatter.
+> **Status:** M0–M7 built, deployed and played. **M7.5 (playtest fixes) is next — start
+> with finding out why nobody can see Twist mode.**
 > **Last updated:** 2026-08-10
 
 ---
@@ -40,8 +39,14 @@ shrunk: there are now two set-piece animations nobody has watched.
 
 ### The next step, in one line
 
-**Playtest on real phones.** It is now two milestones overdue, and it is the only item on
-this list that has ever changed a design decision.
+**Find out why nobody can see Twist's two mechanics** — the collapse warning and the
+Wildcard shop have now gone unseen in two consecutive playtests, and the "they were probably
+in Simple mode" explanation is spent. **Diagnose before building.** Full brief in the
+playtest log for 2026-08-10; the ordered list is M7.5 in §15.
+
+The game was finally played on the deployed build on 2026-08-10. Pacing and interface came
+back fine — the shatter and the burn are the right length and can stop being tuned. Sound
+came back "not good enough", with specifics. Two new features were requested (§12.4, §15).
 
 ### Roadmap
 
@@ -49,8 +54,9 @@ this list that has ever changed a design decision.
 |---|---|---|
 | M0–M5 | ✅ | Toolchain, rules engine, renderer, networking, resilience, Twist mode. |
 | M6 | ✅ **bar a playtest** | Visuals, audio, the Twist burn, the start sequence. All built. None watched. |
-| M7 | ✅ **bar a playtest** | Endgame shatter: crack, every box flies to its owner's panel, count-up, crown. Traced frame by frame on four real games; seen by nobody. §12.3. |
-| **M8** | ⬅ **next code** | PWA: manifest, service worker, icons, offline shell, custom domain. Then ship. |
+| M7 | ✅ | Endgame shatter: crack, every box flies to its owner's panel, count-up, crown. Played 2026-08-10; the pacing came back fine. §12.3. |
+| **M7.5** | ⬅ **next code** | What the 2026-08-10 playtest asked for: make Twist visible (a bug hunt, do it first), rework two sounds, board size in hot seat, streak callouts. §15. |
+| M8 | after that | PWA: manifest, service worker, icons, offline shell, custom domain. Then ship. |
 
 Smaller things worth doing whenever they suit:
 
@@ -184,6 +190,50 @@ Two things only the real deploy revealed:
   environment; see the secure-context invariant in §17.
 
 ### Playtest log
+
+- **2026-08-10, on the deployed HTTPS build, with M7 live.** Verdict: the pacing and the
+  interface are fine; the two Twist mechanics are still invisible; the sound is not good
+  enough. **Read this before starting anything else.**
+
+  ✅ **Settled, stop asking:**
+  - **The wait is alright.** That covers the 4.7s shatter and the 2.9s burn — neither needs
+    shortening. `SHATTER` and `BURN` can stop being open questions.
+  - **The interface is alright.** No layout or legibility complaints.
+
+  🔴 **The one that matters — TWICE reported now, and no longer dismissable.**
+  - **"I still do not see any warning for the burning. It just comes out of nowhere."**
+  - **"There still is no wildcard buying option. It probably is there, but if I can't see it
+    then it's the same as not being there."**
+
+  Last session these were written off as "they probably played Simple mode, where neither
+  feature exists". That explanation is now spent: this session was told to pick Twist on
+  purpose. So one of two things is true, and **both are real bugs**:
+
+  1. The host never actually got the room into Twist — in which case the Simple/Twist chips
+     in the lobby (`room.ts`, they exist and do send `configure`) are not discoverable
+     enough, and the server defaulting to `mode: "simple"` is a trap.
+  2. The room *was* in Twist and the flame badge and shop row genuinely did not appear.
+
+  ⚠️ **Do not start by writing code. Start by finding out which.** The cheapest test is to
+  put a room in Twist and read `state.mode` back on the client — the whole game screen is
+  built once at mount behind `const twist = state.mode === "twist"`, so a room that reaches
+  the board as `simple` renders no shop row and no burn warning for the rest of the match,
+  whatever the lobby said afterwards. That is the first hypothesis worth eliminating.
+
+  The deeper lesson, which is worth more than either fix: **a feature two consecutive
+  playtests could not find has failed, and it does not matter which of the two causes it
+  was.** §10.5 already rebuilt both of these once to be "far more visible". It was not
+  enough. The next attempt should be judged by a player finding it unprompted, not by the
+  element being present in the DOM.
+
+  🔊 **Sound: "okay. Not incredible, not bad. Which is not good enough."** Specific and
+  actionable, for once:
+  - **`tick` (line placed) should sound like drawing a line on paper** — a short graphite
+    drag, not the dry noise band it is now. This is the most-heard sound in the game.
+  - **`click` (box claimed) should be a genuinely satisfying click.** It is currently struck
+    wood bending down in pitch; it wants to be crisper and more mechanical.
+  - Both live in `waveforms.ts`, both are pure, and both have tests that will keep them
+    honest about length, clipping and endpoints while the character changes underneath.
 
 - **2026-08-03, 2 players, LAN, real phones (one iPhone).** Verdict: "it feels very buggy."
   It was. Three real faults, all fixed:
@@ -1131,6 +1181,43 @@ the screen that says who won.
 
 ---
 
+### 12.4 Streak callouts — requested 2026-08-10, NOT BUILT
+
+A chain is already the most exciting thing that happens in this game and currently it gets
+a small "+1 GO AGAIN" flourish (§12.2). The ask is to make a *big* chain an event, the way
+Candy Crush's Sugar Crush is: a phrase slamming onto the screen with a voice line behind it.
+
+Tiers as requested, **counting boxes claimed in a single turn**:
+
+| Boxes | Word |
+|---|---|
+| 4–6 | Dazzling!!! |
+| 7–9 | Splendid!!! |
+| 10–12 | Marvellous!!! |
+| 13+ | Wildfire |
+
+**Voice lines are the owner's to produce** (ElevenLabs), at rising excitement per tier.
+That makes them the first *sampled* audio in the project, which §13 deliberately avoided —
+so they need a real decision about bundle size, an iOS codec fallback, and whether they are
+gated behind the existing mute toggle. They cannot go through `waveforms.ts`.
+
+Two things to settle before building it:
+
+- **The middle tiers do not self-rank.** Nobody can tell whether Splendid beats Dazzling;
+  only the voice would carry the escalation, and a muted player gets no ladder at all. A
+  set that climbs on its own reads better — e.g. **Nice → Blazing → Ruthless → WILDFIRE**,
+  or keep the requested words but let size, colour and shake do the ranking. Owner's call;
+  `Wildfire` at the top is clearly right either way.
+- **The thresholds are guesses and should be checked against real games.** A 4-box chain
+  may turn out to be routine on Small, in which case the bottom tier fires constantly and
+  stops meaning anything — the same failure the Wildcard nudge was designed around (§10.5).
+  `rules.ts` already returns `claimed[]` per move, so the honest way to set these is to log
+  chain lengths over a few full games first.
+
+⚠️ Whatever this becomes, it must not block a tap or move a row. The board is mid-turn and
+the player is still holding the clock — this is an overlay in the `.board-wrap`, like the
+flame badge, never a layout row (§10.0).
+
 ## 13. Audio
 
 **Synthesised, not sampled** (revised 2026-08-03 — this section previously specified
@@ -1305,6 +1392,17 @@ special handling at the call site.
       reduced-motion path, which reaches the result with no frames drawn at all.
       **1.8 ms median / 5.4 ms worst frame** on a full 12×12. No console errors.
       *Never watched by a human. Nobody has seen 144 squares fly.*
+- [ ] **M7.5 — what the 2026-08-10 playtest asked for.** Ordered by how much it matters,
+      not by effort. The first item is a bug hunt and everything else waits on it.
+      1. **Make Twist visible, or find out why it isn't.** See the playtest log — the
+         collapse warning and the Wildcard shop have now gone unseen in two consecutive
+         sessions. Diagnose before building (§16 has the open question).
+      2. **Rework `tick` and `click`.** Paper-drag and a satisfying click. See the log.
+      3. **Board size in hot seat.** `hotseat.ts` derives `n` from `gridSizeFor(playerCount)`
+         with no way to override it, so the one-device mode cannot play anything but the
+         default. The online lobby already has the Small/Medium/Large/Grand chips and the
+         preset table (§8.1); this is mostly lifting that picker across.
+      4. **Streak callouts.** See §12.4.
 - [ ] **M8 — PWA + ship.** Manifest, service worker, icons, offline shell, custom domain.
       **Playtest with 6 real people.**
 
@@ -1324,7 +1422,15 @@ means debugging game logic and network logic simultaneously, which is miserable.
    enough is a playtest question, not a design one. If they aren't, the earliest lever is
    dropping the shrink-arm threshold further (§9.2) before touching turn structure.
 
+5. **Why can nobody find Twist's two mechanics?** (2026-08-10, second consecutive report.)
+   Is the room not actually in Twist, or is it in Twist and the badge and shop row are not
+   rendering? Answer this with a probe before writing any UI. See the playtest log.
+
 ### Resolved
+
+- ~~Is the shatter too long? Is the burn too long?~~ → **No, both are fine.** "The wait is
+  alright and so is the interface" (2026-08-10). Stop tuning `SHATTER` and `BURN` for
+  length; the numbers in them are settled.
 
 - ~~Name~~ → **Tiki**, title case, because the mark depends on a dotted lowercase i. (§1 of
   the design handover.)
