@@ -233,9 +233,19 @@ Two things only the real deploy revealed:
     nothing else happens until the server answers. §10.2 already fixed ghost-vs-pending
     once; it may still not be enough over real latency.
 
-  **Discriminator:** ask what board size the game was on. On Small (8×8) confirm-tap is off,
-  so a double tap there is the pending path and a genuine bug; on Medium and up it is the
-  feature. Do not guess — the two need opposite fixes.
+  ✅ **Answered: it was Medium (10×10), so confirm-tap was ON.** This is the feature, not a
+  dropped tap, and the pending-line path is exonerated. **The fix is disclosure, not input
+  handling** — do not go looking for a bug in `pointer.ts`.
+
+  What that leaves is a judgement call §10.2 already half-made: the second tap exists
+  because a misplaced line is more painful than a slow turn, and that reasoning still
+  holds. But a safety feature nobody was told about reads as a broken one, and this player
+  played several games without ever working out it was deliberate. So either **build the
+  settings toggle §10.2 has been claiming exists**, or **say it on screen** — the ghost
+  already draws with lit end dots, and something as small as the banner reading
+  "Tap again to place" while a ghost is live would probably have prevented the whole
+  report. Cheapest first: the on-screen tell helps every player, the toggle only helps the
+  ones who find Settings.
 
   💡 **3. Hide the running score; reveal it at the end.**
   > "Maybe not show the scores early, so they won't know if they are ahead. When capturing
@@ -1492,9 +1502,9 @@ special handling at the call site.
       2. 🔴 **Find out why nobody can see Twist's two mechanics.** Two consecutive sessions
          could not find the collapse warning or the Wildcard shop. Diagnose before building
          (§16 #5).
-      3. 🔴 **The double-tap complaint.** Establish first whether it was confirm-tap on a
-         ≥10 board (a disclosure problem) or the pending round trip on Small (a real bug);
-         the two need opposite fixes. §10.2.
+      3. **Disclose confirm-tap.** ✅ Diagnosed: the games were on Medium (10×10), where the
+         second tap is deliberate. Not an input bug — say it on screen while a ghost is
+         live, and optionally build the settings toggle §10.2 wrongly claims exists.
       4. **Rework `tick` and `click`.** Paper-drag and a satisfying click. See the log.
       5. **Redesign the Wildcard as one glowing wand.** Collapses buy-and-arm into a single
          tap, with the ten squares' glow absorbed into the wand. Keep `wildcardCostPreview`
