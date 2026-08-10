@@ -2,8 +2,8 @@
 
 > **Name:** **Tiki** (was BOX; renamed 2026-08-02).
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M7 built, deployed and played. **M7.5 is next — start with the timeout
-> pass exploit, which lets a player refuse a losing turn.**
+> **Status:** M0–M7 built, deployed and played. **M7.5 in progress — the timeout pass
+> exploit and the endgame clock are fixed, deployed, and waiting on a playtest.**
 > **Last updated:** 2026-08-10
 
 ---
@@ -39,26 +39,47 @@ shrunk: there are now two set-piece animations nobody has watched.
 
 ### The next step, in one line
 
-**Build §6.3.1 — the timeout auto-move.** A player can currently pass by letting the clock
-run out, and refusing to open a chain is the whole endgame of Dots and Boxes, so passing
-wins games. Decided 2026-08-10: **keep the timer, and auto-play the second most penalising
-move.** §6.3.1 is the full spec — ranking rule, chain metric, edge cases, and the two things
-that break silently if you miss them. §6.3.2 covers the host clock toggle that goes with it.
+**Play some games.** Everything below is deployed and the live site is level with `main` for
+the first time since the playtests. Two questions are waiting on real play, not on code:
+whether the doubled endgame clock feels right (§16 #6, which decides the parked off-switch),
+and whether anyone can still find a way to refuse a turn.
 
-It is a contained change: pure selection logic in `rules.ts`, one call site in `onAlarm()`,
-and it reuses the existing `move` broadcast and replay path rather than needing a new one.
+**Two more shipped the same day, in a second deploy:** the collapse warning finally hides
+(§10.6 — it never did, so it was on screen all game and meant nothing), and `tick` and
+`click` were recut to a graphite drag and a padlock latch (§13.1). The Wildcard half of item
+3 is a design question, not a bug, and wants a verdict from play rather than more code.
 
-⚠️ **`main` is one commit ahead of the live site** (confirm-tap, held back on purpose to
-ship with the auto-move). So the next deploy carries two changes, not one — and the live
-site currently still has both the pass exploit and the double tap on Medium.
+✅ **Deployed 2026-08-10 twice.** First `f1d86651`: the timeout auto-move, the doubled
+endgame clock, and confirm-tap (held back on purpose to ship with them) — verified on the
+deployed site, not just dev, in a real two-player room where the clock ran out, a line
+appeared, and the second miss parked the player on both clients. Then `a8660bb2`: the
+`[hidden]` fix and the two recut sounds — verified by probing the live stylesheet, where a
+hidden `.burn-warning` now collapses to 0×0 instead of rendering at 44×44.
+
+What landed 2026-08-10, and what it means for anything you touch next:
+
+- A shot clock running out now **places a line** rather than passing. It arrives on the wire
+  as a `move` with `auto: true`, so `skip` effectively means a disconnect now.
+- An auto-move **advances** the miss counter instead of clearing it, which is what keeps
+  parking (§6.4) working. Two consecutive timeouts still park you.
+- `turnSecondsFor` **doubles** past 60% of the board, so nothing may assume 12 and 6 — ask
+  it. `PROTOCOL_VERSION` is 4; older clients are told to refresh.
+
+⚠️ It has been watched working, in dev and on the deployed site — but it has still never
+been **played** by people trying to game it. The exploit was found by a player, not by a
+test, and that is the standard the fix has yet to meet.
+
+🅿️ **The host's clock off-switch is parked, deliberately.** Owner is sitting a few games on
+the doubled endgame clock first, to find out whether an off switch is even wanted. §16 #6
+has what to watch for. Do not build it on spec, and do not read it as an oversight.
 
 The game was properly played on the deployed build on 2026-08-10, twice. What came back:
 
 - ✅ **Settled.** Pacing and interface are fine — the 4.7s shatter and 2.9s burn can stop
   being tuned for length. Streak wording settled (§12.4).
-- 🔴 **Correctness.** The pass exploit above. Twist's two mechanics still unfindable after
-  two sessions (§16 #5). A double-tap complaint that is either confirm-tap being undisclosed
-  or a real pending-line bug — establish which first (§10.2).
+- 🔴 **Correctness.** The pass exploit — now fixed, above. Twist's two mechanics still
+  unfindable after two sessions (§16 #5). A double-tap complaint that is either confirm-tap
+  being undisclosed or a real pending-line bug — establish which first (§10.2).
 - 💡 **Feel.** Sound "not good enough" with specifics; the Wildcard is clunky and wants to
   be one glowing wand; hide the running score so M7's count-up becomes the reveal.
 
@@ -176,25 +197,29 @@ in the file. Neither is a credential, but neither needs indexing either.)*
 
 **The game is finished, playable, looks the way it was designed to, and now makes a noise.**
 All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twist mode work.
-155 tests pass. What remains is a playtest, then shipping.
+175 tests pass. What remains is a playtest, then shipping.
 
 | Area | State |
 |---|---|
-| Rules engine | ✅ Done, pure, 107 tests |
+| Rules engine | ✅ Done, pure, 105 tests in `src/shared` |
 | Multiplayer / server | ✅ Done, authoritative, survives restarts |
 | Board rendering + input | ✅ Done, design values applied, 0.7 ms/frame |
 | Twist mode | ✅ Done, with the shrink floor |
 | Screens: landing, settings, lobby, game | ✅ Done — full colour, type and behaviour pass |
-| **Sound** | ✅ Done — eight synthesised sounds, 42 tests. All eight are in use. |
+| **Sound** | ✅ Done — eight synthesised sounds, 46 tests. `tick` and `click` recut at M7.5 (§13.1). |
 | **Twist burn** | ✅ Done — fuse, ignition, spreading front, flame, ash. 2.6 ms worst frame. |
 | **Start sequence** | ✅ Mark draws, flares, hits, shakes; board rolls in |
 | **Endgame shatter** | ✅ Done — crack, flight, count-up, crown. 5.4 ms worst frame on 12×12 |
 | **PWA / installable** | ❌ Not started |
 | **Deployed** | ✅ https://box.charlesbobby253.workers.dev |
 
-**Live since 2026-07-31, redeployed 2026-08-10 with M7.** Verified against the deployed
-site, not just dev: room creation, code lookup, two WebSocket clients joining, a move
-propagating to both, and a **28 ms median round-trip**. Redeploy with `npm.cmd run deploy`
+**Live since 2026-07-31. Redeployed 2026-08-10 with M7, then twice more the same day**: the
+timeout auto-move, endgame clock and confirm-tap (`f1d86651`), then the `[hidden]` fix and
+the two recut sounds (`a8660bb2`, current). Verified against the deployed site, not just
+dev: room creation, code lookup, two WebSocket clients joining, a move propagating to both,
+and a **28 ms median round-trip**; for the auto-move, a live room left to time out — line
+placed, both clients in step, second miss parking the player; for the `[hidden]` fix, a
+probe of the live stylesheet. Redeploy with `npm.cmd run deploy`
 (~30 seconds), then confirm the served bundle actually changed — the success message is
 printed before the new Worker has finished propagating.
 
@@ -325,14 +350,17 @@ Two things only the real deploy revealed:
   enough. The next attempt should be judged by a player finding it unprompted, not by the
   element being present in the DOM.
 
-  🔊 **Sound: "okay. Not incredible, not bad. Which is not good enough."** Specific and
-  actionable, for once:
+  🔊 **Sound: "okay. Not incredible, not bad. Which is not good enough."** ✅ **Both recut
+  and shipped 2026-08-10 — §13.1.**
   - **`tick` (line placed) should sound like drawing a line on paper** — a short graphite
     drag, not the dry noise band it is now. This is the most-heard sound in the game.
   - **`click` (box claimed) should be a genuinely satisfying click.** It is currently struck
     wood bending down in pitch; it wants to be crisper and more mechanical.
-  - Both live in `waveforms.ts`, both are pure, and both have tests that will keep them
-    honest about length, clipping and endpoints while the character changes underneath.
+  - Sharpened on the second pass to *"more clicky. like when you press a padlock"* and
+    *"tick still doesnt sound like paper"*, which is what actually made them buildable — a
+    padlock names a material, and a material names the synthesis. The first pair was one
+    considered guess at each and was rejected outright; the second offered three takes on
+    each and was settled in a single reply.
 
 - **2026-08-03, 2 players, LAN, real phones (one iPhone).** Verdict: "it feels very buggy."
   It was. Three real faults, all fixed:
@@ -584,17 +612,21 @@ subtle tone. See §12.2 for the client side.
 `ctx.storage.setAlarm(deadlineMs)`. This is the single most important reason to use Durable
 Objects — you get an authoritative timer without an always-on process.
 
-**On `alarm()` the server currently force-SKIPS, and that is a bug. See §6.3.1.**
+**On `alarm()` the server places a line rather than passing. See §6.3.1.**
 
-### 6.3.1 A timeout must place a line, not pass — SPEC, NOT YET BUILT
+### 6.3.1 A timeout places a line, it does not pass — BUILT 2026-08-10
 
-**In Dots and Boxes there is no passing.** `onAlarm()` calls `skipTurn`, which advances the
-turn without placing anything (`GameRoom.ts:696`), so a player facing a losing turn can
-simply let the clock run out. The entire endgame is about being forced to open a chain, so
-this is not a small exploit — it is a way to decline to lose, and it was found in play
+**In Dots and Boxes there is no passing.** `onAlarm()` used to call `skipTurn`, which
+advances the turn without placing anything, so a player facing a losing turn could simply
+let the clock run out. The entire endgame is about being forced to open a chain, so this
+was not a small exploit — it was a way to decline to lose, and it was found in play
 (2026-08-10).
 
-**Decided 2026-08-10: keep the timer, and auto-play the SECOND most penalising move.**
+**Decided and built 2026-08-10: keep the timer, and auto-play the SECOND most penalising
+move.** `autoMoveLine` and `penaltyFor` in `rules.ts`; called from `onAlarm()` and from hot
+seat's local clock. `skipTurn` survives only as the fallback for a board with no legal move
+left, which is unreachable while a game is running (a live unclaimed box always has an open
+side) — and is asserted as such in `rules.test.ts`.
 
 #### Which move
 
@@ -622,42 +654,52 @@ repeatedly, until none remain. That greedy loop is what makes it count a whole *
 rather than just its entrance — a 5-box chain shows only one or two 3-edge boxes, so a
 naive count would rate it as harmless and the auto-move would happily hand it over.
 
-Keep this **pure and in `rules.ts`**, for the reason the whole file exists: the client
-replays what the server did, so both must compute the same move from the same state.
+Kept **pure and in `rules.ts`**, for the reason the whole file exists: the client replays
+what the server did, so both must compute the same move from the same state. Ties within the
+chosen penalty resolve to the lowest line id, which is what makes that agreement free.
 
-#### ⚠️ Two things that will silently break if missed
+#### ⚠️ Two things that would have silently broken — both now covered by tests
 
-1. **Broadcast it as a `move`, not a `skip`.** The client already replays `move` through the
-   same `applyMove` the server ran (§7), so an auto-move needs no new replay path at all —
-   add a flag (`auto: true`) so the UI can say *"Ada ran out of time — a line was placed for
-   them"*. Inventing a new message type here would be re-solving a solved problem.
-2. **The auto-move must NOT reset the missed-turn counter.** `applyMove` clears `missed` on
-   a successful move, which is right for a player who acted and wrong for one who did not.
-   If this is missed, `missed` never reaches 2, **nobody is ever benched again**, and §6.4
-   quietly stops working — with no error and no visible symptom until an AFK player holds a
-   game up forever.
+1. **Broadcast as a `move`, not a `skip`.** The client already replays `move` through the
+   same `applyMove` the server ran (§7), so the auto-move needed no new replay path — just
+   `auto: true` on the existing message, which the client passes straight back into
+   `applyMove` and uses to say *"Ada ran out of time — a line was placed for them"*.
+2. **The auto-move does NOT reset the missed-turn counter — it advances it.** `applyMove`
+   clears `missed` on a successful move, which is right for a player who acted and wrong for
+   one who did not. Had this been missed, `missed` would never reach 2, **nobody would ever
+   be benched again**, and §6.4 would have quietly stopped working with no error and no
+   visible symptom until an AFK player held a game up forever. Two consequences that fall
+   out of it: an auto-move that claims a box does **not** hand a continuation turn to a
+   player it just parked, and an armed Wildcard is refunded rather than fired for someone
+   who has gone.
 
-### 6.3.2 Turning the clock off — SPEC, NOT YET BUILT
+### 6.3.2 The endgame clock, and turning the clock off
 
-**The host can switch the timer off; it is ON by default.** A room config flag, alongside
-`mode` and `gridSize`, so the lobby chips already have somewhere to put it.
+**The 60% rule — BUILT 2026-08-10.** The owner asked for no timer once ~60% of cells are
+captured, on the grounds that endgame moves deserve thought. That re-opened the exploit
+§6.3.1 had just closed, at precisely the worst moment: with no clock, "wait forever"
+replaces "wait 12 seconds", and the endgame is exactly when refusing to move is most
+valuable.
 
-The owner also asked for **no timer once ~60% of cells are captured**, on the grounds that
-endgame moves deserve thought.
+**Owner accepted the recommendation 2026-08-10: the 60% rule LENGTHENS the clock rather
+than removing it.** `turnSecondsFor` multiplies by `ENDGAME_CLOCK_MULTIPLIER` (2) once
+`settledFraction` reaches `ENDGAME_CLOCK_FRACTION` (0.6). That grants the extra thinking
+time the request was actually about while keeping a backstop, and leaves the auto-move as
+the thing that guarantees every game terminates.
 
-⚠️ **Both of these re-open the exploit they are next to, and the 60% rule re-opens it at
-precisely the worst moment.** The auto-move above only works while there is a clock to
-expire; with no clock, "wait forever" replaces "wait 12 seconds", and the endgame — after
-60% capture — is exactly when refusing to move is most valuable. A no-timer room is a room
-where one player can stall indefinitely, which is the problem the shot clock was built for
-in the first place (§6.3).
+- The threshold counts cells that have LEFT PLAY, not cells captured: claimed, spent on a
+  Wildcard, or burned by a collapsing ring. Monotonic, so the clock can only ever lengthen.
+- Continuation turns double too (6s becomes 12s), which is the same "double `turnSeconds`"
+  rule applied to the value actually in force.
+- Anything drawing a countdown must ask `turnSecondsFor` for the total rather than restating
+  12 and 6. `clockFraction` in `room.ts` had them hardcoded and would have left the ring
+  pinned at full for the first half of every endgame turn.
 
-Recommendation, which the owner should overrule if they disagree: **the 60% rule should
-lengthen the clock, not remove it.** Double `turnSeconds` past the threshold. That grants
-the extra thinking time the request is actually about while keeping a backstop, and it
-leaves the auto-move as the thing that guarantees every game terminates. Reserve the full
-off switch for the explicit host toggle, where it is a deliberate choice by someone who
-knows the room.
+**The host's off switch — 🅿️ PARKED, not deferred.** Owner's call, 2026-08-10: sit a few
+games on the doubled clock first. The off-switch was asked for to give the endgame more
+thinking time, and the doubled clock now does that, so it may be solving a problem that no
+longer exists. **Do not build it on spec** — §16 #6 has what to watch for while playing and
+what it would cost if it does come back.
 
 `turnDeadline` is broadcast as an **absolute epoch ms**. Clients estimate clock offset at
 join (3 ping round-trips, take the median) and render the countdown against corrected
@@ -667,7 +709,8 @@ derived client-side from the deadline; the server does not send a second message
 Deadline = `moveResolvedAt + turnSeconds + ANIMATION_GRACE(350ms)`.
 
 `TURN_SECONDS = 12`, `CONTINUATION_TURN_SECONDS = 6`, both room config values, so presets
-are free if we want them later.
+are free if we want them later. Both are doubled in the endgame — ask `turnSecondsFor` for
+the value in force rather than reading the constants directly (§6.3.2).
 
 ### 6.4 AFK / benching
 
@@ -678,7 +721,8 @@ are free if we want them later.
 | Any input from a benched player | un-benched, active from the *next* rotation |
 
 The miss counter resets to 0 on any successful move, so an occasional slow turn never
-parks anyone — it takes two in a row.
+parks anyone — it takes two in a row. **A timeout still counts as a miss even though a line
+gets placed**: `applyMove` clears `missed` only when the player chose the move (§6.3.1).
 
 Benched players: skipped in turn order, greyed in the scoreboard with a "TAP TO RETURN"
 affordance, **keep their score and their shop inventory**, and are never removed from the
@@ -774,7 +818,7 @@ state all ride on `room`, and a shrink rides on the `move` that caused it. Corre
 |---|---|
 | `welcome` | `you, serverNow, room` |
 | `room` | `room: RoomSnapshot, serverNow` — roster, phase, config, rematch votes |
-| `move` | `playerIndex, lineId, claimed[], scores[], again, wildcardFired, gameOver, winners[], shrink, serverNow, turn` |
+| `move` | `playerIndex, lineId, claimed[], scores[], again, wildcardFired, auto, benched, gameOver, winners[], shrink, serverNow, turn` |
 | `skip` | `playerIndex, reason: timeout\|disconnect, benched, paused, gameOver, winners[], shrink, serverNow, turn` |
 | `wildcard` | `playerIndex, action: bought\|armed, burned[], charges, scores[]` |
 | `pong` | `t0, serverNow` |
@@ -790,6 +834,9 @@ Three consequences worth holding onto:
   client-side from the replayed state.
 - **The turn lives in one `turn: TurnInfo` object** on both `move` and `skip`, rather than
   in loose `nextPlayerId` / `turnDeadline` fields.
+- **A shot clock running out arrives as a `move` with `auto: true`**, not as a `skip` — see
+  §6.3.1. `skip` now means a disconnect, near enough. The client must pass `auto` back into
+  `applyMove`; it is what turns the replay into a miss rather than a move.
 
 **Snapshot encoding.** Plain number arrays, not base64'd typed arrays (revised at M3).
 A 10×10 board is ~320 small integers, sent only on join and reconnect, and it compresses
@@ -1170,7 +1217,9 @@ Both Twist mechanics were invisible in play. The information existed; nobody saw
 top-right corner, absolutely positioned inside `.board-wrap` so it costs the layout nothing
 (§10.0). The ring is a dial that drains as the collapse approaches — full two rounds out,
 half at one round — and at one round it turns red and pulses. It hides itself when no
-collapse is pending, which includes after the final burn at the floor.
+collapse is pending, which includes after the final burn at the floor. ⚠️ **That last
+sentence was aspirational until 2026-08-10 — it did not hide, and that is the whole of
+§10.6.**
 
 The text chip in the shop row stays, because the two are read at different moments: the
 badge is glanceable mid-turn where the eyes already are, the chip spells it out in words.
@@ -1193,6 +1242,59 @@ game: a prompt that keeps coming back stops being information and becomes naggin
 - It is deliberately **not itself a buy button.** It appears unprompted right where a thumb
   already is, and spending ten hard-won squares on a mis-tap is exactly the kind of thing
   that makes someone put the game down. It points; the real button still does the spending.
+
+### 10.6 Why nobody could see the collapse warning — DIAGNOSED AND FIXED 2026-08-10
+
+Two playtests reported *"I still do not see any warning for the burning. It just comes out
+of nowhere."* §16 #5 offered two hypotheses. **Both were wrong**, and the real cause is
+worth reading before touching any component that hides itself.
+
+**The room was in Twist.** Ruled out from the report alone: a collapse cannot happen in
+Simple mode at all (`maybeArmShrink` returns early), so a player who watched the board burn
+was in a Twist room by definition. Confirmed in a live room anyway — `state.mode` reaches
+the board as `"twist"`, the chip selects, and both elements are in the DOM.
+
+**The warning was not too brief.** Measured across board sizes and lobby sizes by playing
+games with a greedy model player: the badge is live for **35–87 turns** before the first
+collapse, 18–26 of them the warned player's own. Timing was never the problem.
+
+**`hidden` was not hiding it.** `.burn-warning` declared `display: grid`, which beats the
+browser's own `[hidden] { display: none }` — an author rule always outranks a UA rule. So
+`burnWarning.hidden = true` set the attribute, changed nothing on screen, and passed every
+review because the code reads correctly.
+
+What a player actually saw, therefore:
+
+- a flame badge on the board **from the first frame of every Twist game**, with an empty
+  number, before any collapse was scheduled;
+- the badge **frozen on its last value forever after the final burn** — measured in a real
+  room: board already collapsed to 6×6, `collapseAtRotation` null, no further collapse
+  possible, and the badge still on screen, still red, still pulsing, still titled *"The
+  outer ring burns next round."*
+
+A warning that is always on is not a warning. It is furniture, and players correctly learn
+to ignore furniture — which is exactly why the real collapse "came out of nowhere". The
+badge did not fail to appear. It failed to ever *dis*appear, and that is what destroyed its
+meaning.
+
+**The fix is one rule in `base.css`: `[hidden] { display: none !important }`.** Three other
+components had already been bitten and each carried its own `X[hidden] { display: none }`
+patch — `.waiting`, `.wildcard-badge`, `.overlay`. The fourth had no way to know it needed
+one. Those three patches are now deleted; the global rule covers them, which was verified
+component by component in the browser.
+
+⚠️ **The lesson generalises: in this codebase, setting `display` on a component silently
+breaks `hidden` for it.** The global rule now makes that impossible. Do not remove it, and
+do not "fix" the `!important` — being unbeatable by a component's own `display` is the
+entire point.
+
+**Still open: the Wildcard half.** The shop row and the nudge are correct — the nudge hides
+properly and fires once, when you can first afford one. But the same measurement shows the
+first Wildcard becomes affordable **very late**: turn 93 of 132 on a 2-player Small board,
+turn 165 of 180 on a 6-player Medium. Boxes in Dots and Boxes all arrive at the end, so the
+buy button is honestly unusable for most of the game and the one nudge lands in the middle
+of the endgame scramble. That is a design question, not a bug, and it wants a playtest
+verdict before anyone rebuilds it — see M7.5 item 6, which already proposes a redesign.
 
 ---
 
@@ -1410,8 +1512,8 @@ number rather than opening a DAW.
 
 | Name | Used for | Character | Length |
 |---|---|---|---|
-| `tick` | Line placed | Band of noise, crisp and dry | 45ms |
-| `click` | Box claimed | Struck wood, bending down in pitch | 90ms |
+| `tick` | Line placed | Graphite on paper: friction plus fibre grains | 75ms |
+| `click` | Box claimed | Padlock latch: bright snap, inharmonic metal | 45ms |
 | `thunk` | Play-button lid · Wildcard bought | Mechanical latch: strike, body, catch | 150ms |
 | `whoosh` | Board shrink | Noise behind a sweeping cutoff | 400ms |
 | `clack` | Endgame piece lands | Tile on tile, harder than `click` | 60ms |
@@ -1425,13 +1527,21 @@ travelling out along the box boundaries — the sound doing what the picture doe
 and they have their own test, because they are quiet enough to lose while tuning
 the rip on top of them and their absence is invisible in a waveform view.
 
+**`tick` and `click` were recut at M7.5** (2026-08-10) after the playtest called the set
+"not good enough" and named both. See §13.1 — it is mostly a note about how to run a taste
+change, which is not something the rest of this file has had to describe.
+
 `waveforms.ts` is **pure** — a name and a sample rate in, a `Float32Array` out — for the
 same reason `rules.ts` is: it makes the part with the interesting logic testable under
-`node --test`. 42 tests assert every sound is the length the table says, never clips, is
+`node --test`. 46 tests assert every sound is the length the table says, never clips, is
 never silence, renders identically twice, and **starts and ends on an exactly zero sample**.
 That last one is not fussiness: a buffer with a non-zero endpoint is a step change in the
 speaker, which is an audible click layered on top of the sound you designed, loudest on
 precisely the short sharp sounds where it is hardest to diagnose.
+
+⚠️ **Length, clipping and endpoints say nothing about CHARACTER.** An impact and a stroke of
+the same length pass every one of those identically, and character is the only thing anyone
+has ever complained about. Four tests now measure it directly — see §13.1.
 
 Relative loudness lives in one table (`SFX_PEAK`) and is asserted by a test:
 `blip < tick < click < fanfare`. A sound you hear every three seconds has to sit under one
@@ -1461,6 +1571,59 @@ the badge going bright already says so and a second sound would blur what either
 piece that lands, `fanfare` on the crown. The engine's four-voice cap with oldest-evicted is
 exactly the ducking §12.3 asks for, so 144 clacks in two and a half seconds needed no
 special handling at the call site.
+
+---
+
+### 13.1 Recutting `tick` and `click` — and how to run a taste change
+
+Both were replaced on 2026-08-10 after the playtest verdict *"okay. Not incredible, not bad.
+Which is not good enough."* What shipped:
+
+- **`tick` — graphite on paper.** Sparse impulses, one per fibre giving way, bandpassed into
+  short scratches, over a quiet friction hiss that dulls as the stroke travels. 4ms of
+  attack, because a drawn line has one and an impact does not. No pitched partial anywhere.
+- **`click` — a padlock latch.** A bright wide snap, three inharmonic partials at
+  3600/5400/7300 (metal has no common fundamental), a trace of mass at 620Hz, and the
+  shackle seating 5ms later. Damped at 5ms: the metal is heard, then caught.
+
+⚠️ **The method matters more than either sound, because the first attempt failed.**
+
+Sound is the one part of this game that cannot be reviewed by reading it, and an agent
+writing it cannot hear it either. The first attempt was a single considered guess at each,
+shipped to the owner as an A/B page — and both were rejected: *"click and tap both dont
+sound good... tick still doesnt sound like paper."* The second attempt offered **three
+genuinely different takes on each** and asked for two letters back. That converged
+immediately.
+
+The lesson is cheap to state and was expensive to learn: **on a taste question, do not
+iterate one guess at a time.** Build the generators parameterised, render a spread, and let
+the person who can hear it choose. Cutting three more variants costs almost nothing once the
+parameters are arguments.
+
+Two things that made the guessing better between rounds, both of which are measurements
+rather than opinions:
+
+1. **`tick`'s first version modulated noise at 110Hz.** That is a slow wobble; paper has
+   none. Graphite is hundreds of tiny impacts a second, so grains had to be actual impulses.
+2. **`click`'s first version had a sine for a body.** A sine is a tone and a padlock is
+   metal. Inharmonic partials, not a fundamental.
+
+**Character is now tested**, because none of the existing tests could tell any of these
+versions apart — an impact and a stroke of the same length pass length, clipping and
+endpoint checks identically. The four in `waveforms.test.ts`:
+
+| Test | Guards against | Measured |
+|---|---|---|
+| `tick` peaks after its attack | reverting to an impact envelope | 4.9ms, must be > 3ms |
+| `tick` keeps its grain | losing the impulses | 0.435, must be > 0.32 |
+| `click` energy at the front | the body ringing on again | 8.8x, must be > 3x |
+| `click` stays metallic | a low sine creeping back as the body | 5156Hz, must be > 3000Hz |
+
+The grain threshold is the one worth understanding. It is the average level change between
+neighbouring 1ms windows, which cancels the overall decay and leaves only the tooth. Three
+renders: **0.435** shipped, **0.224** the rejected 110Hz version, **0.117** plain filtered
+noise. The threshold sits above the rejected one deliberately — a test set at 0.16 would
+have passed the sound that failed, which is the entire point of writing it.
 
 ---
 
@@ -1576,24 +1739,40 @@ special handling at the call site.
       *Never watched by a human. Nobody has seen 144 squares fly.*
 - [ ] **M7.5 — what the 2026-08-10 playtests asked for.** Ordered by how much it matters,
       not by effort. The first two are correctness; everything after is feel.
-      1. 🔴 **Stop the timeout being a free pass.** ✅ Decided, spec written: keep the timer
-         and auto-play the **second most penalising** move. **`PROJECT.md` §6.3.1 is the
-         whole specification** — the ranking rule, the greedy chain metric, the edge cases,
-         and the two things that break silently if missed (broadcast as `move` not `skip`;
-         do not reset the missed counter). Pure, in `rules.ts`, with tests.
-      2. 🔴 **Host toggle for the clock, on by default**, plus the 60% rule. §6.3.2 — which
-         argues the 60% case should double the clock rather than remove it, since a room
-         with no clock re-opens the exploit item 1 just closed.
-      3. 🔴 **Find out why nobody can see Twist's two mechanics.** Two consecutive sessions
-         could not find the collapse warning or the Wildcard shop. Diagnose before building
-         (§16 #5).
+      1. ✅ **BUILT 2026-08-10 — the timeout places a line.** `penaltyFor` and `autoMoveLine`
+         in `rules.ts`, called from `onAlarm()` and from hot seat's local clock. Both of the
+         silent failures are covered by name in `rules.test.ts`: it broadcasts as a `move`
+         with `auto: true`, and an auto-move CHARGES a miss rather than clearing it, so
+         parking still works. Watched working in the browser, in hot seat and in a real
+         two-player room: lines appear on the clock, the miss counter climbs, and the second
+         miss parks the player on every client. `PROTOCOL_VERSION` is 4.
+      2. ✅ **BUILT 2026-08-10 — the endgame clock doubles past 60%.** Past
+         `ENDGAME_CLOCK_FRACTION` the clock DOUBLES rather than stopping — the owner took
+         the §6.3.2 recommendation on 2026-08-10. `clockFraction` in `room.ts` had 12 and 6
+         hardcoded and was fixed to ask `turnSecondsFor`, or the ring would have sat pinned
+         at full for half of every endgame turn.
+         🅿️ **The host's clock off-switch is PARKED** — owner's call, 2026-08-10: sit a few
+         games on the doubled clock first and find out whether an off switch is even wanted.
+         See §16 #6. Do not build it on spec.
+      3. 🟡 **Twist's two mechanics — diagnosed, half fixed.** ✅ **The collapse warning is
+         fixed:** `hidden` was not hiding the flame badge, so it was on screen from the
+         first frame of every game and stayed frozen on a red "burns next round" after the
+         last possible collapse. A warning that is always on is not a warning. One rule in
+         `base.css` fixes it and the whole class of bug with it — **§10.6 is the writeup,
+         and it is worth reading before you touch any component that hides itself.**
+         🔴 **Still open: the Wildcard.** Not a bug — the row and the nudge work. The
+         problem is that ten boxes cannot be banked until turn ~93 of 132, so the button is
+         honestly dead for most of the game. Judge it in a playtest, then see item 6.
       4. ✅ **BUILT 2026-08-10 — confirm-tap is now Large and Grand only.** The complaint came
          from Medium, where the cells are still big enough to hit accurately, so the
          insurance cost more than the mistakes it prevented. `CONFIRM_TAP_FROM_GRID` is 12.
-         ⚠️ **Built but NOT deployed** — held deliberately, to ship with item 1 in one go.
-         **The live site is therefore behind `main`.** Whoever builds the auto-move deploys
-         both together, and should re-read the deploy check in §0.1 first.
-      5. **Rework `tick` and `click`.** Paper-drag and a satisfying click. See the log.
+         ✅ **Deployed 2026-08-10** alongside items 1 and 2, which is what it was held back
+         for. The live site no longer double-taps on Medium.
+      5. ✅ **BUILT 2026-08-10 — `tick` and `click` recut.** Graphite-on-paper and a padlock
+         latch, chosen by the owner from three candidates each. §13.1 has both designs and,
+         more usefully, the method: a single considered guess at each was rejected outright,
+         a spread of three converged first time. Character is now tested — the old tests
+         could not tell any of the versions apart.
       6. **Redesign the Wildcard as one glowing wand.** Collapses buy-and-arm into a single
          tap, with the ten squares' glow absorbed into the wand. Keep `wildcardCostPreview`
          as the single source of which ten. See the log.
@@ -1623,9 +1802,28 @@ means debugging game logic and network logic simultaneously, which is miserable.
    enough is a playtest question, not a design one. If they aren't, the earliest lever is
    dropping the shrink-arm threshold further (§9.2) before touching turn structure.
 
-5. **Why can nobody find Twist's two mechanics?** (2026-08-10, second consecutive report.)
-   Is the room not actually in Twist, or is it in Twist and the badge and shop row are not
-   rendering? Answer this with a probe before writing any UI. See the playtest log.
+5. ~~**Why can nobody find Twist's two mechanics?**~~ **ANSWERED 2026-08-10 — see §10.6.**
+   Neither hypothesis was right. The room *was* in Twist and the elements *did* render; the
+   collapse warning was rendering **all the time**, including when there was nothing to
+   warn about, because `hidden` was not hiding it. Fixed. The Wildcard half is still open —
+   it is a discoverability question, not a bug, and it now needs a playtest to judge.
+
+6. **Does the clock need a host off-switch at all?** 🅿️ **PARKED 2026-08-10, owner's call.**
+   The doubled endgame clock (§6.3.2) was built to answer the request the off-switch came
+   from — "endgame moves deserve thought" — so the off-switch may now be solving a problem
+   that no longer exists. The owner is sitting a few games on the doubled clock before
+   deciding.
+
+   What to watch for while playing, since it is what decides this:
+   - Does 24s in the endgame feel like enough, or is anyone still rushed?
+   - Does it feel like *too* much — long silences waiting for someone to move?
+   - Does anyone reach for a clock they cannot turn off?
+
+   If the answer is "the doubled clock is fine", this question closes and no code is
+   written. If it does come back, build it as a room config flag alongside `mode` and
+   `gridSize` — but know what it costs: a no-timer room is a room where one player can stall
+   indefinitely, which is the problem the shot clock exists to solve (§6.3), and the §6.3.1
+   auto-move cannot fire without a deadline to fire on.
 
 ### Resolved
 
