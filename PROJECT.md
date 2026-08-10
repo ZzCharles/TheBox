@@ -48,6 +48,10 @@ that break silently if you miss them. §6.3.2 covers the host clock toggle that 
 It is a contained change: pure selection logic in `rules.ts`, one call site in `onAlarm()`,
 and it reuses the existing `move` broadcast and replay path rather than needing a new one.
 
+⚠️ **`main` is one commit ahead of the live site** (confirm-tap, held back on purpose to
+ship with the auto-move). So the next deploy carries two changes, not one — and the live
+site currently still has both the pass exploit and the double tap on Medium.
+
 The game was properly played on the deployed build on 2026-08-10, twice. What came back:
 
 - ✅ **Settled.** Pacing and interface are fine — the 4.7s shatter and 2.9s burn can stop
@@ -1583,10 +1587,12 @@ special handling at the call site.
       3. 🔴 **Find out why nobody can see Twist's two mechanics.** Two consecutive sessions
          could not find the collapse warning or the Wildcard shop. Diagnose before building
          (§16 #5).
-      4. ✅ **DONE 2026-08-10 — confirm-tap is now Large and Grand only.** The complaint came
+      4. ✅ **BUILT 2026-08-10 — confirm-tap is now Large and Grand only.** The complaint came
          from Medium, where the cells are still big enough to hit accurately, so the
          insurance cost more than the mistakes it prevented. `CONFIRM_TAP_FROM_GRID` is 12.
-         **Not yet deployed.**
+         ⚠️ **Built but NOT deployed** — held deliberately, to ship with item 1 in one go.
+         **The live site is therefore behind `main`.** Whoever builds the auto-move deploys
+         both together, and should re-read the deploy check in §0.1 first.
       5. **Rework `tick` and `click`.** Paper-drag and a satisfying click. See the log.
       6. **Redesign the Wildcard as one glowing wand.** Collapses buy-and-arm into a single
          tap, with the ten squares' glow absorbed into the wand. Keep `wildcardCostPreview`
