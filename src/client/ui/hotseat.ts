@@ -8,12 +8,16 @@
  */
 
 import {
+  BOARD_PRESETS,
+  estimatedMinutes,
+  GRAND_MIN_PLAYERS,
   gridSizeFor,
   MAX_WILDCARD_CHARGES,
   WILDCARD_COST,
   MAX_PLAYERS,
   MIN_PLAYERS,
   PLAYER_COLORS,
+  presetAllowed,
   WARN_AT_SECONDS_REMAINING,
 } from "../../shared/constants.ts";
 import {
@@ -84,6 +88,15 @@ function renderSetup(root: HTMLElement, setActive: SetActive) {
         </div>
       </section>
 
+      <section>
+        <h2>Board</h2>
+        <div class="chips" id="sizes">
+          ${BOARD_PRESETS.map(
+            (p) => `<button class="chip" data-grid="${p.grid}">${p.label}</button>`,
+          ).join("")}
+        </div>
+      </section>
+
       <button class="primary" id="play">Play</button>
       <p class="hint" id="hint"></p>
       <button class="linkish" id="back">Play online instead</button>
@@ -97,8 +110,14 @@ function renderSetup(root: HTMLElement, setActive: SetActive) {
   const counts = root.querySelector<HTMLElement>("#counts")!;
   const hint = root.querySelector<HTMLElement>("#hint")!;
   const modes = root.querySelector<HTMLElement>("#modes")!;
+  const sizes = root.querySelector<HTMLElement>("#sizes")!;
   let selected = 4;
   let mode: Mode = "simple";
+  /** 0 means "whatever suits this many players" — same convention as the lobby. */
+  let grid = 0;
+
+  /** The size actually in force, once the auto default is resolved. */
+  const gridFor = () => grid || gridSizeFor(selected);
 
   modes.addEventListener("click", (e) => {
     const picked = (e.target as HTMLElement).dataset.mode;
@@ -107,7 +126,14 @@ function renderSetup(root: HTMLElement, setActive: SetActive) {
     for (const chip of modes.querySelectorAll(".chip")) {
       chip.classList.toggle("selected", (chip as HTMLElement).dataset.mode === mode);
     }
-    updateHint();
+    refresh();
+  });
+
+  sizes.addEventListener("click", (e) => {
+    const picked = Number((e.target as HTMLElement).dataset.grid);
+    if (!picked || !presetAllowed(picked, selected)) return;
+    grid = picked;
+    refresh();
   });
 
   for (let p = MIN_PLAYERS; p <= MAX_PLAYERS; p++) {
@@ -118,22 +144,39 @@ function renderSetup(root: HTMLElement, setActive: SetActive) {
       selected = p;
       counts.querySelectorAll(".chip").forEach((c) => c.classList.remove("selected"));
       chip.classList.add("selected");
-      updateHint();
+      // Dropping to two players with Grand chosen has to give the size back,
+      // or Play would start a board this table is not allowed to pick. The
+      // online lobby re-checks the same thing on Start (§8.1).
+      if (grid && !presetAllowed(grid, selected)) grid = 0;
+      refresh();
     });
     counts.appendChild(chip);
   }
 
-  function updateHint() {
-    const n = gridSizeFor(selected);
-    const base = `${n}×${n} board · ${n * n} boxes · ${2 * n * (n + 1)} lines`;
-    hint.textContent = mode === "twist" ? `${base} · board shrinks` : base;
+  function refresh() {
+    const n = gridFor();
+    let gated = false;
+    for (const chip of sizes.querySelectorAll<HTMLButtonElement>(".chip")) {
+      const chipGrid = Number(chip.dataset.grid);
+      const allowed = presetAllowed(chipGrid, selected);
+      chip.classList.toggle("selected", chipGrid === n);
+      // Greyed, never hidden — you should be able to see a size exists before
+      // you are allowed to pick it, and the row must not change height.
+      chip.disabled = !allowed;
+      if (!allowed) gated = true;
+    }
+
+    const parts = [`${n}×${n} · ${n * n} boxes · about ${estimatedMinutes(n)} min`];
+    if (mode === "twist") parts.push("board shrinks");
+    if (gated) parts.push(`Grand needs ${GRAND_MIN_PLAYERS} players`);
+    hint.textContent = parts.join(" · ");
   }
 
   counts.children[selected - MIN_PLAYERS]?.classList.add("selected");
-  updateHint();
+  refresh();
 
   root.querySelector<HTMLElement>("#play")!.addEventListener("click", () => {
-    startGame(root, selected, mode, setActive);
+    startGame(root, selected, mode, gridFor(), setActive);
   });
 }
 
@@ -143,9 +186,9 @@ function startGame(
   root: HTMLElement,
   playerCount: number,
   mode: Mode,
+  n: number,
   setActive: SetActive,
 ) {
-  const n = gridSizeFor(playerCount);
   const players: PlayerView[] = Array.from({ length: playerCount }, (_, i) => ({
     name: `Player ${i + 1}`,
     initial: INITIALS[i]!,

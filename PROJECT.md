@@ -93,7 +93,7 @@ reasoning, including two places where the owner's suggested fix is worse than th
 | M0–M5 | ✅ | Toolchain, rules engine, renderer, networking, resilience, Twist mode. |
 | M6 | ✅ **bar a playtest** | Visuals, audio, the Twist burn, the start sequence. All built. None watched. |
 | M7 | ✅ | Endgame shatter: crack, every box flies to its owner's panel, count-up, crown. Played 2026-08-10; the pacing came back fine. §12.3. |
-| **M7.5** | ⬅ **next code** | What the 2026-08-10 playtest asked for: make Twist visible (a bug hunt, do it first), rework two sounds, board size in hot seat, streak callouts. §15. |
+| **M7.5** | ⬅ **in progress** | What the 2026-08-10 playtest asked for. Done and deployed: the timeout auto-move, the endgame clock, the collapse warning, both sounds. Left: the Wildcard (needs a play verdict, not code) and streak callouts. §15. |
 | M8 | after that | PWA: manifest, service worker, icons, offline shell, custom domain. Then ship. |
 
 Smaller things worth doing whenever they suit:
@@ -1778,10 +1778,13 @@ have passed the sound that failed, which is the entire point of writing it.
          as the single source of which ten. See the log.
       7. **Hide the running score, reveal it in the shatter.** Puff the name icon on a claim
          instead. Makes M7's count-up the payoff it was built to be. See the log.
-      8. **Board size in hot seat.** `hotseat.ts` derives `n` from `gridSizeFor(playerCount)`
-         with no way to override it, so the one-device mode cannot play anything but the
-         default. The online lobby already has the Small/Medium/Large/Grand chips and the
-         preset table (§8.1); this is mostly lifting that picker across.
+      8. ✅ **BUILT 2026-08-10 — board size in hot seat.** The same
+         Small/Medium/Large/Grand chips as the lobby, gated by the same
+         `presetAllowed` so there is one rule and not two. 0 means "whatever suits this
+         many players", exactly as `room.config.gridSize` does. ⚠️ The case worth keeping:
+         **picking Grand with four players and then dropping to two gives the size back** —
+         otherwise Play starts a board the table is not allowed to choose. The online lobby
+         re-checks the same thing on Start, for the same reason.
       9. **Streak callouts.** See §12.4.
 - [ ] **M8 — PWA + ship.** Manifest, service worker, icons, offline shell, custom domain.
       **Playtest with 6 real people.**
