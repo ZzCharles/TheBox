@@ -36,6 +36,29 @@
   padding: 0;
 }
 
+/*
+ * `hidden` MUST hide, whatever else a component says about display.
+ *
+ * The browser's own `[hidden] { display: none }` is an author-overridable UA
+ * rule, so any component that sets its own `display` silently defeats it — and
+ * `display` is exactly what a flex or grid component sets. The failure is
+ * invisible in review: `el.hidden = true` runs, the attribute lands in the DOM,
+ * and the element stays on screen.
+ *
+ * This cost us the Twist collapse warning for two playtests. `.burn-warning`
+ * declared `display: grid`, so it was on the board from the first frame of
+ * every game and could never be hidden again — it ended games frozen on a red
+ * "the ring burns next round" for a collapse that could no longer happen. Three
+ * other components had already hit this and each carried its own
+ * `X[hidden] { display: none }` patch; the fourth had no reason to know.
+ *
+ * `!important` is deliberate. It is what makes the rule unbeatable by a
+ * component's own `display`, which is the entire point.
+ */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;

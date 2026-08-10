@@ -532,10 +532,6 @@ input:focus-visible {
   line-height: 1.2;
 }
 
-.waiting[hidden] {
-  display: none;
-}
-
 .waiting i {
   display: inline-block;
   width: 0.375rem;
@@ -904,10 +900,6 @@ input:focus-visible {
   font-size: 0.55rem;
   font-weight: 800;
   line-height: 1;
-}
-
-.wildcard-badge[hidden] {
-  display: none;
 }
 
 .wildcard-badge.armed {
@@ -1286,10 +1278,6 @@ input:focus-visible {
    * any positive z-index regardless of DOM order.
    */
   z-index: 10;
-}
-
-.overlay[hidden] {
-  display: none;
 }
 
 .result {
