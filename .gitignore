@@ -4,3 +4,7 @@ dist/
 .dev.vars
 *.local
 .DS_Store
+
+# Per-machine Claude Code permissions. Churns on every session and records
+# local command lines — which is how an old email ended up in a public repo.
+.claude/settings.local.json
