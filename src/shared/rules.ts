@@ -12,6 +12,8 @@
 
 import {
   CONTINUATION_TURN_SECONDS,
+  ENDGAME_CLOCK_FRACTION,
+  ENDGAME_CLOCK_MULTIPLIER,
   MAX_WILDCARD_CHARGES,
   MISSED_TURNS_TO_BENCH,
   SHRINK_FLOOR_SQUARES,
@@ -149,14 +151,32 @@ export interface MoveOutcome {
   again: boolean;
   /** The Wildcard fired to prevent the turn ending. */
   wildcardFired: boolean;
+  /** The clock ran out and the server placed this line for them (§6.3.1). */
+  auto: boolean;
+  /** This auto-move was the miss that parked them. */
+  benched: boolean;
   nextPlayerIndex: number;
   /** Whether the next turn runs on the short clock. */
   continuation: boolean;
   nextTurnSeconds: number;
+  /** Set when an auto-move parked the last active player. */
+  paused: boolean;
   gameOver: boolean;
   winners: number[];
   /** Set when this move's turn advance triggered a ring collapse. */
   shrink: ShrinkOutcome | null;
+}
+
+export interface MoveOptions {
+  /**
+   * The shot clock expired and this line is being placed FOR the player.
+   *
+   * Charges the turn as a miss instead of clearing the counter — a player who
+   * did not act must still reach the parking threshold. Getting this wrong is
+   * silent: `missed` never reaches `MISSED_TURNS_TO_BENCH`, nobody is ever
+   * parked again, and §6.4 stops working with no error to show for it.
+   */
+  auto?: boolean;
 }
 
 export type Result<T> =
@@ -213,8 +233,28 @@ export function currentPlayer(s: GameState): number {
   return s.turnOrder[s.turnPtr];
 }
 
+/**
+ * How much of the board has left play — claimed, spent on a Wildcard, or burned
+ * by a collapsing ring. Monotonic, so the endgame clock can only ever lengthen.
+ */
+export function settledFraction(s: GameState): number {
+  const total = s.boxes.length;
+  return total === 0 ? 1 : (total - s.boxesRemaining) / total;
+}
+
+/**
+ * The clock LENGTHENS in the endgame rather than switching off (§6.3.2).
+ *
+ * Removing it once the board is mostly closed would hand the game back to the
+ * player willing to wait longest — refusing to open a chain is the whole
+ * endgame — so the extra thinking time arrives as a multiplier and the auto-move
+ * still guarantees the game ends.
+ */
 export function turnSecondsFor(s: GameState): number {
-  return s.continuation ? CONTINUATION_TURN_SECONDS : TURN_SECONDS;
+  const base = s.continuation ? CONTINUATION_TURN_SECONDS : TURN_SECONDS;
+  return settledFraction(s) >= ENDGAME_CLOCK_FRACTION
+    ? base * ENDGAME_CLOCK_MULTIPLIER
+    : base;
 }
 
 export function playerCount(s: GameState): number {
@@ -251,6 +291,114 @@ function isComplete(s: GameState, box: number): boolean {
   return (
     s.lines[t] !== 0 && s.lines[b] !== 0 && s.lines[l] !== 0 && s.lines[r] !== 0
   );
+}
+
+// -------------------------------------------------------------- auto-move ---
+
+/**
+ * There is no passing in Dots and Boxes, so a shot clock that ends the turn
+ * without placing anything is a way to decline to lose (§6.3.1). When the clock
+ * runs out the server plays a line FOR the player — and these two functions pick
+ * which one.
+ *
+ * Both live here, pure, for the reason the whole file exists: the client replays
+ * what the server did, so both must derive the same line from the same state.
+ */
+
+function edgesOn(n: number, lines: Uint8Array, box: number): number {
+  const ids = boxLineIds(n, boxRow(n, box), boxCol(n, box));
+  let count = 0;
+  for (const id of ids) if (lines[id] !== 0) count++;
+  return count;
+}
+
+/** The one open side of a three-sided box, or -1. */
+function missingEdge(n: number, lines: Uint8Array, box: number): number {
+  const ids = boxLineIds(n, boxRow(n, box), boxCol(n, box));
+  for (const id of ids) if (lines[id] === 0) return id;
+  return -1;
+}
+
+/**
+ * How many boxes playing `lineId` would hand to the next player.
+ *
+ * Counted by applying the line to a copy and then greedily claiming every box
+ * that stands at three sides, over and over until none is left. That repetition
+ * is the whole point: it measures a CHAIN rather than its entrance. A five-box
+ * chain shows only one or two three-sided boxes at any moment, so a flat count
+ * would rate it harmless and the auto-move would cheerfully give it away.
+ *
+ * A box the line itself CLOSES belongs to whoever played it, not to the next
+ * player, so it is excluded rather than charged.
+ */
+export function penaltyFor(s: GameState, lineId: number): number {
+  const n = s.n;
+  // Only presence matters here, never ownership — nothing is scored.
+  const lines = Uint8Array.from(s.lines);
+  lines[lineId] = 1;
+  const settled = new Uint8Array(s.boxes.length);
+
+  for (const box of lineBoxes(n, lineId)) {
+    if (box < 0 || s.boxes[box] !== UNCLAIMED) continue;
+    if (edgesOn(n, lines, box) === 4) settled[box] = 1;
+  }
+
+  // Everything still live and up for grabs. Claimed, SPENT and DEAD boxes are
+  // not UNCLAIMED, so they drop out here.
+  const pending: number[] = [];
+  for (let box = 0; box < s.boxes.length; box++) {
+    if (s.boxes[box] === UNCLAIMED && !settled[box]) pending.push(box);
+  }
+
+  let total = 0;
+  while (pending.length > 0) {
+    const box = pending.pop()!;
+    if (settled[box]) continue;
+    const edges = edgesOn(n, lines, box);
+    // Not free yet. If a neighbour's claim later opens it, the fill below puts
+    // it back on the list.
+    if (edges < 3) continue;
+
+    settled[box] = 1;
+    total++;
+    if (edges === 3) {
+      const fill = missingEdge(n, lines, box);
+      lines[fill] = 1;
+      for (const next of lineBoxes(n, fill)) {
+        if (next >= 0 && !settled[next] && s.boxes[next] === UNCLAIMED) pending.push(next);
+      }
+    }
+  }
+  return total;
+}
+
+/**
+ * The line to play for a player whose clock ran out, or null if the board has
+ * no legal move left.
+ *
+ * Rank every legal move by `penaltyFor`, highest first, and take the SECOND
+ * highest DISTINCT penalty: give away 10, 7 or 4 boxes, and this plays the 7.
+ *
+ * - Not the worst move, because a missed turn should not be a loss.
+ * - Not a safe move, because then timing out is free and the exploit survives.
+ *
+ * It is a warning with a real cost, which is exactly the intent. Distinct
+ * values, so two moves that both give away 10 do not fill both places — the
+ * second is still the 7. With only one distinct penalty (the common case
+ * mid-game, where most moves give away nothing) there is no second, so it plays
+ * that one; if that value is 0, no penalty was possible and none is applied.
+ *
+ * Ties within the chosen penalty resolve to the lowest line id, so client and
+ * server land on the same line without exchanging a word about it.
+ */
+export function autoMoveLine(s: GameState): number | null {
+  const moves = legalMoves(s); // ascending line id
+  if (moves.length === 0) return null;
+
+  const penalties = moves.map((id) => penaltyFor(s, id));
+  const ranked = [...new Set(penalties)].sort((a, b) => b - a);
+  const target = ranked[1] ?? ranked[0];
+  return moves[penalties.indexOf(target)];
 }
 
 // ------------------------------------------------------------ turn moving ---
@@ -444,6 +592,7 @@ export function applyMove(
   s: GameState,
   playerIndex: number,
   lineId: number,
+  opts: MoveOptions = {},
 ): Result<MoveOutcome> {
   if (s.phase !== "playing") return reject("game-over");
   if (s.paused) return reject("paused");
@@ -452,10 +601,24 @@ export function applyMove(
   if (s.lines[lineId] !== 0) return reject("line-taken");
   if (isDeadLine(s, lineId)) return reject("dead-line");
 
+  const auto = opts.auto === true;
+
   s.lines[lineId] = playerIndex + 1;
   s.linesPlaced++;
   s.turnSeq++;
-  s.missed[playerIndex] = 0;
+
+  let benched = false;
+  if (auto) {
+    // The line went down, but nobody chose it. Clearing `missed` here would
+    // mean an absent player is never parked — see MoveOptions.auto.
+    s.missed[playerIndex]++;
+    if (s.missed[playerIndex] >= MISSED_TURNS_TO_BENCH) {
+      s.benched[playerIndex] = 1;
+      benched = true;
+    }
+  } else {
+    s.missed[playerIndex] = 0;
+  }
 
   // A single line can complete the box on either side of it.
   const claimed: number[] = [];
@@ -475,11 +638,17 @@ export function applyMove(
 
   // The Wildcard fires exactly when the turn would otherwise end, so arming it
   // is never wasted on a move that already earned a continuation.
-  if (!again && s.armed) {
+  //
+  // A player parked by this very move is the exception: they are gone, and
+  // holding the turn open for them is the opposite of what parking is for. The
+  // charge is not burned — `advanceTurn` refunds an armed Wildcard that never
+  // fired, so it is waiting for them when they tap back in.
+  if (!again && s.armed && !benched) {
     s.armed = false;
     wildcardFired = true;
     again = true;
   }
+  if (benched) again = false;
 
   let shrink: ShrinkOutcome | null = null;
   if (s.boxesRemaining > 0) {
@@ -510,9 +679,14 @@ export function applyMove(
       claimed,
       again,
       wildcardFired,
-      nextPlayerIndex: gameOver ? -1 : currentPlayer(s),
+      auto,
+      benched,
+      // An auto-move can park the last player standing, which is the only way a
+      // placement ever leaves the room with nobody to move.
+      nextPlayerIndex: gameOver || s.paused ? -1 : currentPlayer(s),
       continuation: s.continuation,
       nextTurnSeconds: turnSecondsFor(s),
+      paused: s.paused,
       gameOver,
       winners: s.winners.slice(),
       shrink,
@@ -531,7 +705,15 @@ export interface SkipOutcome {
   winners: number[];
 }
 
-/** Shot clock expired. Never removes the player — parks them at the threshold. */
+/**
+ * End a turn without placing anything. Never removes the player — parks them at
+ * the threshold.
+ *
+ * NOT the shot clock any more: a timeout plays `autoMoveLine` through
+ * `applyMove` with `auto`, because passing is not a legal thing to do in this
+ * game (§6.3.1). This survives as the fallback for a board with no legal move
+ * left, and for hot-seat's own clock to lean on if it ever needs it.
+ */
 export function skipTurn(s: GameState, playerIndex: number): Result<SkipOutcome> {
   if (s.phase !== "playing") return reject("game-over");
   if (playerIndex !== currentPlayer(s)) return reject("not-your-turn");

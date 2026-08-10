@@ -18,6 +18,7 @@ import {
 } from "../../shared/constants.ts";
 import {
   applyMove,
+  autoMoveLine,
   canPlace,
   createGame,
   currentPlayer,
@@ -28,6 +29,7 @@ import {
   skipTurn,
   turnSecondsFor,
   type Mode,
+  type ShrinkOutcome,
 } from "../../shared/rules.ts";
 import { play } from "../audio/engine.ts";
 import { exposeDebug } from "../devtools.ts";
@@ -257,14 +259,41 @@ function startGame(
     }
 
     if (left <= 0) {
-      const result = skipTurn(state, currentPlayer(state));
-      if (result.ok) {
-        toast(result.value.benched ? "Parked — tap to return" : "Time");
+      // Running out of time places a line FOR you (§6.3.1). Passing is not a
+      // move in this game, and one device is exactly where a player would
+      // notice that waiting was cheaper than opening a chain. `skipTurn` is the
+      // fallback for a board with no legal move left.
+      const line = autoMoveLine(state);
+      let out: { benched: boolean; shrink: ShrinkOutcome | null } | null = null;
+
+      if (line === null) {
+        const skipped = skipTurn(state, currentPlayer(state));
+        if (skipped.ok) {
+          out = skipped.value;
+          toast(skipped.value.benched ? "Parked — tap to return" : "Time");
+        }
+      } else {
+        const played = applyMove(state, currentPlayer(state), line, { auto: true });
+        if (played.ok) {
+          out = played.value;
+          toast(
+            played.value.benched
+              ? "Time — parked, and a line was placed"
+              : "Time — a line was placed",
+          );
+          play("tick");
+          renderer.animateLine(line, now);
+          for (const box of played.value.claimed) renderer.animateBox(box, now);
+          stage.requestFrame();
+        }
+      }
+
+      if (out) {
         // The ring goes when the rotation completes, and a rotation can just as
         // easily complete on a timeout as on a move.
-        if (result.value.shrink) {
+        if (out.shrink) {
           play("whoosh");
-          renderer.animateBurn(result.value.shrink, now);
+          renderer.animateBurn(out.shrink, now);
           stage.requestFrame();
         }
         beginTurn();

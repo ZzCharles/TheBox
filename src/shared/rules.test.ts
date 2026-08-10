@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { boxId, boxLineIds, hLineId, lineCount, vLineId } from "./board.ts";
 import {
   CONTINUATION_TURN_SECONDS,
+  ENDGAME_CLOCK_FRACTION,
+  ENDGAME_CLOCK_MULTIPLIER,
   MAX_WILDCARD_CHARGES,
   MISSED_TURNS_TO_BENCH,
   TURN_SECONDS,
@@ -12,18 +14,23 @@ import {
 import {
   applyMove,
   armWildcard,
+  autoMoveLine,
   bench,
   buyWildcard,
   canPlace,
   createGame,
   currentPlayer,
   legalMoves,
+  penaltyFor,
+  settledFraction,
   skipTurn,
   SPENT,
+  turnSecondsFor,
   UNCLAIMED,
   unbench,
   wildcardCostPreview,
   type GameState,
+  type MoveOptions,
   type MoveOutcome,
   type Result,
 } from "./rules.ts";
@@ -35,8 +42,13 @@ function game(n: number, players: number, mode: "simple" | "twist" = "simple") {
 }
 
 /** Apply a move that is expected to succeed, and return its outcome. */
-function play(s: GameState, player: number, lineId: number): MoveOutcome {
-  const r = applyMove(s, player, lineId);
+function play(
+  s: GameState,
+  player: number,
+  lineId: number,
+  opts?: MoveOptions,
+): MoveOutcome {
+  const r = applyMove(s, player, lineId, opts);
   assert.ok(r.ok, `expected move ${lineId} by p${player} to succeed`);
   return r.value;
 }
@@ -259,6 +271,223 @@ describe("shot clock and parking", () => {
     unbench(s, 0);
     assert.equal(s.scores[0], 7);
     assert.equal(s.charges[0], 1);
+  });
+});
+
+// --------------------------------------------------------------- auto-move ---
+
+/**
+ * A corridor of `len` boxes along `row`, starting at column 0: tops and bottoms
+ * filled, both ends open. Every box sits at two sides, so nothing is free — but
+ * a line at either end hands the whole run over.
+ */
+function corridor(s: GameState, row: number, len: number) {
+  const ids: number[] = [];
+  for (let c = 0; c < len; c++) ids.push(hLineId(s.n, row, c), hLineId(s.n, row + 1, c));
+  preset(s, 1, ...ids);
+}
+
+describe("timeout auto-move — the penalty metric", () => {
+  it("counts the whole chain a line opens, not just its entrance", () => {
+    const s = game(6, 2);
+    corridor(s, 0, 4);
+
+    // Nothing is free yet: every box in the run is at two sides.
+    assert.equal(penaltyFor(s, hLineId(6, 5, 5)), 0, "a line away from the run costs nothing");
+
+    // Opening either end gives away all four. A flat "boxes now at three sides"
+    // count would say 1 here, which is exactly the mistake this guards.
+    assert.equal(penaltyFor(s, vLineId(6, 0, 0)), 4);
+    assert.equal(penaltyFor(s, vLineId(6, 0, 4)), 4);
+  });
+
+  it("does not charge for a box the line itself closes", () => {
+    const n = 4;
+    const s = game(n, 2);
+    const [top, bottom, left, right] = boxLineIds(n, 0, 0);
+    preset(s, 1, top, bottom, left);
+
+    // Taking the box is not a gift to the next player — it is a gift to you.
+    assert.equal(penaltyFor(s, right), 0);
+    // Playing anywhere else leaves it sitting there for them.
+    assert.equal(penaltyFor(s, hLineId(n, 3, 3)), 1);
+  });
+});
+
+describe("timeout auto-move — which line", () => {
+  it("plays the second most penalising move, not the worst and not a safe one", () => {
+    const s = game(6, 2);
+    corridor(s, 0, 4); // give away four
+    corridor(s, 4, 2); // give away two
+
+    const moves = legalMoves(s);
+    const distinct = [...new Set(moves.map((id) => penaltyFor(s, id)))].sort((a, b) => b - a);
+    assert.deepEqual(distinct, [4, 2, 0], "the board offers exactly three prices");
+
+    const line = autoMoveLine(s);
+    assert.ok(line !== null);
+    assert.equal(penaltyFor(s, line), 2, "the middle price — a warning with a real cost");
+  });
+
+  it("ranks by DISTINCT penalty, so two equal worsts do not fill both places", () => {
+    const s = game(6, 2);
+    corridor(s, 0, 4);
+    corridor(s, 4, 2);
+
+    // Both ends of the four-box run cost 4. The second place still belongs to
+    // the 2, not to the other 4.
+    assert.equal(penaltyFor(s, vLineId(6, 0, 0)), 4);
+    assert.equal(penaltyFor(s, vLineId(6, 0, 4)), 4);
+    assert.equal(penaltyFor(s, autoMoveLine(s)!), 2);
+  });
+
+  it("plays a harmless move when every move is harmless", () => {
+    const s = game(6, 2);
+    const line = autoMoveLine(s);
+    assert.ok(line !== null);
+    assert.equal(penaltyFor(s, line), 0, "no second price exists, and none is invented");
+    assert.ok(canPlace(s, line));
+  });
+
+  it("plays the only legal move when there is only one", () => {
+    const n = 2;
+    const s = game(n, 2);
+    const only = lineCount(n) - 1;
+    for (let id = 0; id < only; id++) preset(s, 1, id);
+    assert.deepEqual(legalMoves(s), [only]);
+    assert.equal(autoMoveLine(s), only);
+  });
+
+  it("agrees with itself — the same state always yields the same line", () => {
+    const build = () => {
+      const s = game(6, 3);
+      corridor(s, 0, 4);
+      corridor(s, 4, 2);
+      return s;
+    };
+    // Client and server run this file on separate machines and must land on the
+    // same line without exchanging a word about it.
+    assert.equal(autoMoveLine(build()), autoMoveLine(build()));
+  });
+
+  it("always has a line to play, and playing them all ends the game", () => {
+    for (const mode of ["simple", "twist"] as const) {
+      // Twist as well as simple: a collapsing ring kills boxes and clears lines
+      // underneath the selector, which is where "no legal move" would show up.
+      const s = game(8, 2, mode);
+      let guard = 0;
+      while (s.phase === "playing" && guard++ < 400) {
+        const line = autoMoveLine(s);
+        assert.ok(line !== null, `a running ${mode} game always has a legal move`);
+        assert.ok(applyMove(s, currentPlayer(s), line).ok);
+      }
+      assert.equal(s.phase, "over", `${mode}: the selector alone must finish the game`);
+    }
+  });
+});
+
+describe("timeout auto-move — the miss counter", () => {
+  it("charges the turn as a miss instead of clearing it", () => {
+    const s = game(4, 3);
+    const out = play(s, 0, autoMoveLine(s)!, { auto: true });
+    assert.equal(out.auto, true);
+    assert.equal(s.missed[0], 1, "a line placed FOR you is not you turning up");
+    assert.equal(out.benched, false);
+
+    // A move the player actually made still clears it.
+    play(s, 1, hLineId(4, 3, 3));
+    assert.equal(s.missed[1], 0);
+  });
+
+  it(`still parks after ${MISSED_TURNS_TO_BENCH} misses — the silent failure`, () => {
+    // If the auto-move cleared `missed`, this loop would never end: nobody would
+    // ever be parked again and §6.4 would stop working with nothing to show.
+    const s = game(6, 3);
+    let guard = 0;
+    while (!s.benched[0] && guard++ < 40) {
+      assert.ok(applyMove(s, currentPlayer(s), autoMoveLine(s)!, { auto: true }).ok);
+    }
+    assert.equal(s.benched[0], 1);
+    assert.ok(s.missed[0] >= MISSED_TURNS_TO_BENCH);
+  });
+
+  it("does not hold a continuation turn open for a player it just parked", () => {
+    const n = 4;
+    const s = game(n, 2);
+    const [top, bottom, left, right] = boxLineIds(n, 0, 0);
+    preset(s, 1, top, bottom, left);
+    s.missed[0] = MISSED_TURNS_TO_BENCH - 1; // one miss from being parked
+
+    // The cheapest move here is to close the waiting box, which normally earns
+    // another turn — but they are gone, and parking is the whole point.
+    const out = play(s, 0, right, { auto: true });
+    assert.deepEqual(out.claimed, [boxId(n, 0, 0)]);
+    assert.equal(out.benched, true);
+    assert.equal(out.again, false, "a parked player must not keep the turn");
+    assert.equal(out.continuation, false);
+    assert.equal(out.nextPlayerIndex, 1);
+  });
+
+  it("refunds an armed Wildcard rather than firing it for someone who left", () => {
+    const s = game(4, 2, "twist");
+    s.charges[0] = 1;
+    assert.ok(armWildcard(s, 0).ok);
+    assert.equal(s.charges[0], 0);
+    s.missed[0] = MISSED_TURNS_TO_BENCH - 1;
+
+    const out = play(s, 0, autoMoveLine(s)!, { auto: true });
+    assert.equal(out.benched, true);
+    assert.equal(out.wildcardFired, false);
+    assert.equal(s.charges[0], 1, "the charge is waiting for them when they tap back in");
+  });
+
+  it("pauses the room when the auto-move parks the last player standing", () => {
+    const s = game(4, 2);
+    bench(s, 1);
+    s.missed[0] = MISSED_TURNS_TO_BENCH - 1;
+
+    const out = play(s, 0, autoMoveLine(s)!, { auto: true });
+    assert.equal(out.benched, true);
+    assert.equal(out.paused, true);
+    assert.equal(out.nextPlayerIndex, -1, "nobody is on the clock");
+    assert.equal(s.phase, "playing", "a fully parked room must not end the game");
+  });
+});
+
+// ------------------------------------------------------------ endgame clock ---
+
+describe("the endgame clock", () => {
+  it("runs at normal length while most of the board is still open", () => {
+    const s = game(4, 2);
+    assert.equal(settledFraction(s), 0);
+    assert.equal(turnSecondsFor(s), TURN_SECONDS);
+    s.continuation = true;
+    assert.equal(turnSecondsFor(s), CONTINUATION_TURN_SECONDS);
+  });
+
+  it(`doubles once ${ENDGAME_CLOCK_FRACTION * 100}% of the board has gone`, () => {
+    const s = game(4, 2); // 16 boxes
+
+    s.boxesRemaining = 7; // 9/16 settled — just under
+    assert.equal(turnSecondsFor(s), TURN_SECONDS);
+
+    s.boxesRemaining = 6; // 10/16 settled — over the line
+    assert.equal(turnSecondsFor(s), TURN_SECONDS * ENDGAME_CLOCK_MULTIPLIER);
+    s.continuation = true;
+    assert.equal(
+      turnSecondsFor(s),
+      CONTINUATION_TURN_SECONDS * ENDGAME_CLOCK_MULTIPLIER,
+      "continuation turns get the extra thinking time too",
+    );
+  });
+
+  it("lengthens the clock rather than removing it", () => {
+    // The endgame is precisely when refusing to move is most valuable, so there
+    // must always be a deadline for the auto-move to fire on.
+    const s = game(4, 2);
+    s.boxesRemaining = 0;
+    assert.equal(settledFraction(s), 1);
+    assert.ok(turnSecondsFor(s) > 0);
   });
 });
 

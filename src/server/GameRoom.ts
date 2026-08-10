@@ -29,6 +29,7 @@ import {
 import {
   applyMove,
   armWildcard,
+  autoMoveLine,
   bench,
   buyWildcard,
   createGame,
@@ -518,6 +519,8 @@ export class GameRoom extends Server<Env> {
       scores: Array.from(state.scores),
       again: outcome.again,
       wildcardFired: outcome.wildcardFired,
+      auto: false,
+      benched: false,
       gameOver: outcome.gameOver,
       winners: outcome.winners,
       shrink: outcome.shrink,
@@ -652,6 +655,17 @@ export class GameRoom extends Server<Env> {
     const room = await this.load();
     const now = Date.now();
     let changed = false;
+    /*
+     * Whether the ROSTER moved, which is a separate question from whether the
+     * game did.
+     *
+     * A room broadcast hands every client a fresh snapshot, and taking one
+     * resets the board's in-flight tweens — right after a reconnect, wrong right
+     * after an auto-move, whose line would pop into place instead of being
+     * drawn. Scores, parking and turn order all ride the `move` the clients
+     * replay, so the snapshot is only owed when the roster itself changes.
+     */
+    let roster = false;
 
     // 1. Dropped players whose grace period has run out get parked. They keep
     //    their score and seat and can tap back in whenever they return.
@@ -659,6 +673,7 @@ export class GameRoom extends Server<Env> {
       if (at > now + DUE_SLOP_MS) continue;
       delete room.grace[clientId];
       changed = true;
+      roster = true;
 
       const index = room.players.findIndex((p) => p.id === clientId);
       if (index < 0 || !room.game || room.phase !== "playing") continue;
@@ -685,7 +700,9 @@ export class GameRoom extends Server<Env> {
       });
     }
 
-    // 2. The shot clock.
+    // 2. The shot clock. A timeout PLACES A LINE — there is no passing in this
+    //    game, and letting the clock end a turn for free is a way to decline to
+    //    lose (§6.3.1).
     if (
       room.phase === "playing" &&
       room.game &&
@@ -693,12 +710,29 @@ export class GameRoom extends Server<Env> {
       room.turnDeadline <= now + DUE_SLOP_MS
     ) {
       const state = fromSnapshot(room.game);
-      const result = skipTurn(state, currentPlayer(state));
-      if (result.ok) {
+      const index = currentPlayer(state);
+      const line = autoMoveLine(state);
+
+      /*
+       * Broadcast as a `move`, not a `skip`. Every client already replays `move`
+       * through the same `applyMove` this ran, so the auto-move needs no new
+       * path on the wire — just `auto: true`, which tells them to charge it as a
+       * miss and to say who ran out of time.
+       *
+       * `skipTurn` survives only as the fallback for a board with no legal move
+       * left, which should be unreachable while the game is running.
+       */
+      const result = line === null ? null : applyMove(state, index, line, { auto: true });
+
+      if (result?.ok) {
         changed = true;
+        const outcome = result.value;
         room.game = toSnapshot(state);
         // A timeout can collapse the ring that ends the game.
-        if (result.value.gameOver) {
+        if (outcome.gameOver) {
+          // The results screen is built from the roster and the rematch votes,
+          // so this one does need the snapshot.
+          roster = true;
           room.phase = "results";
           room.turnDeadline = null;
           room.players.forEach((p) => (p.ready = false));
@@ -706,24 +740,54 @@ export class GameRoom extends Server<Env> {
           room.turnDeadline = deadlineFor(state);
         }
         this.emit({
-          t: "skip",
-          playerIndex: result.value.playerIndex,
-          reason: "timeout",
-          benched: result.value.benched,
-          paused: result.value.paused,
-          gameOver: result.value.gameOver,
-          winners: result.value.winners,
-          shrink: result.value.shrink,
+          t: "move",
+          playerIndex: index,
+          lineId: outcome.lineId,
+          claimed: outcome.claimed,
+          scores: Array.from(state.scores),
+          again: outcome.again,
+          wildcardFired: outcome.wildcardFired,
+          auto: true,
+          benched: outcome.benched,
+          gameOver: outcome.gameOver,
+          winners: outcome.winners,
+          shrink: outcome.shrink,
           serverNow: Date.now(),
           turn: this.turnInfo(room, state),
         });
+      } else {
+        const skipped = skipTurn(state, index);
+        if (skipped.ok) {
+          changed = true;
+          roster = true;
+          room.game = toSnapshot(state);
+          if (skipped.value.gameOver) {
+            room.phase = "results";
+            room.turnDeadline = null;
+            room.players.forEach((p) => (p.ready = false));
+          } else {
+            room.turnDeadline = deadlineFor(state);
+          }
+          this.emit({
+            t: "skip",
+            playerIndex: skipped.value.playerIndex,
+            reason: "timeout",
+            benched: skipped.value.benched,
+            paused: skipped.value.paused,
+            gameOver: skipped.value.gameOver,
+            winners: skipped.value.winners,
+            shrink: skipped.value.shrink,
+            serverNow: Date.now(),
+            turn: this.turnInfo(room, state),
+          });
+        }
       }
     }
 
     await this.rearm(room);
     if (changed) {
       await this.save();
-      this.broadcastRoom();
+      if (roster) this.broadcastRoom();
     }
   }
 

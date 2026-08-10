@@ -27,6 +27,7 @@ import {
   roundsUntilCollapse,
   wildcardCostPreview,
   skipTurn,
+  turnSecondsFor,
   type GameState,
   type ShrinkOutcome,
 } from "../../shared/rules.ts";
@@ -158,7 +159,13 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
   function applyBroadcastMove(msg: Extract<ServerMessage, { t: "move" }>) {
     if (!state || !room) return;
 
-    const result = applyMove(state, msg.playerIndex, msg.lineId);
+    /*
+     * `auto` has to be carried through, not inferred. It is what turns this
+     * replay into a MISS rather than a move — without it the local copy clears
+     * the miss counter the server just advanced, and the two disagree about who
+     * is one timeout away from being parked.
+     */
+    const result = applyMove(state, msg.playerIndex, msg.lineId, { auto: msg.auto });
     if (!result.ok) {
       // We are out of step with the server. Re-introducing ourselves returns a
       // full snapshot, which is cheaper than trying to reconcile.
@@ -175,6 +182,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     if (msg.wildcardFired) {
       toast(`${room.players[msg.playerIndex]?.name ?? "Someone"} used a Wildcard`);
     }
+    if (msg.auto) announceAutoMove(msg.playerIndex, msg.benched);
 
     if (import.meta.env.DEV) {
       const drift = msg.scores.some((s, i) => s !== state!.scores[i]);
@@ -204,6 +212,25 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       msg.action === "bought"
         ? `${who} bought a Wildcard for ${WILDCARD_COST}`
         : `${who} armed a Wildcard`,
+    );
+  }
+
+  /**
+   * A line appearing on its own needs explaining, or it reads as a bug.
+   *
+   * Says a line WAS PLACED rather than that a turn was lost, because that is the
+   * rule now: there is no passing, so running out of time costs you a move of
+   * the server's choosing rather than nothing at all.
+   */
+  function announceAutoMove(playerIndex: number, benched: boolean) {
+    if (!room) return;
+    const mine = room.players[playerIndex]?.id === me;
+    const who = mine ? "You" : (room.players[playerIndex]?.name ?? "Someone");
+    const them = mine ? "you" : "them";
+    toast(
+      benched
+        ? `${who} ran out of time — parked, and a line was placed for ${them}`
+        : `${who} ran out of time — a line was placed for ${them}`,
     );
   }
 
@@ -1192,7 +1219,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         banner.onclick = null;
       }
       // Bench state comes from the replayed game state, not the room snapshot —
-      // a timeout only broadcasts `skip`, so `room.players[].benched` is stale
+      // a timeout broadcasts a `move`, so `room.players[].benched` is stale
       // until the next full room broadcast.
       else if (state.benched[myIndex] === 1) {
         banner.textContent = "You're parked — tap to return";
@@ -1336,9 +1363,13 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
 
 // -------------------------------------------------------------------- utils ---
 
+/**
+ * How full the ring is drawn. Asks the rules engine for the turn length rather
+ * than restating 12 and 6 — the endgame doubles them (§6.3.2), and a hardcoded
+ * total would leave the ring pinned at full for the first half of the turn.
+ */
 function clockFraction(secondsLeft: number, state: GameState): number {
-  const total = state.continuation ? 6 : 12;
-  return Math.max(0, Math.min(1, secondsLeft / total));
+  return Math.max(0, Math.min(1, secondsLeft / turnSecondsFor(state)));
 }
 
 let toastTimer = 0;

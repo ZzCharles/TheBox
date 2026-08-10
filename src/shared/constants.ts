@@ -5,7 +5,7 @@
  */
 
 /** Bump whenever a wire type changes shape. Mismatched clients are told to refresh. */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 // ---------------------------------------------------------------- timing ---
 
@@ -21,6 +21,19 @@ export const CONTINUATION_TURN_SECONDS = 6;
 
 /** Haptic + visual warning fires with this much time left. */
 export const WARN_AT_SECONDS_REMAINING = 4;
+
+/**
+ * The endgame deserves thought — so past this much of the board, the clock is
+ * multiplied rather than switched off (§6.3.2).
+ *
+ * Removing the clock here would re-open the pass exploit at precisely the worst
+ * moment: once the board is mostly closed, refusing to open a chain is the whole
+ * game. A longer clock grants the extra thinking time the request is actually
+ * about, and the timeout auto-move stays as the thing that guarantees every
+ * game terminates.
+ */
+export const ENDGAME_CLOCK_FRACTION = 0.6;
+export const ENDGAME_CLOCK_MULTIPLIER = 2;
 
 /** Added to every deadline so the placement animation doesn't eat think time. */
 export const ANIMATION_GRACE_MS = 350;

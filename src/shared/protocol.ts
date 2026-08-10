@@ -141,6 +141,16 @@ export type ServerMessage =
       scores: number[];
       again: boolean;
       wildcardFired: boolean;
+      /**
+       * The shot clock expired and the server placed this line for them
+       * (§6.3.1). A timeout is a `move` and not a `skip` on purpose: the client
+       * already replays `move` through the same `applyMove` the server ran, so
+       * an auto-move needs no new replay path — only this flag, so the client
+       * can replay it as a miss and say what happened.
+       */
+      auto: boolean;
+      /** The auto-move above was the miss that parked them. */
+      benched: boolean;
       gameOver: boolean;
       winners: number[];
       /** Non-null when this move's turn advance collapsed the outer ring. */
@@ -156,6 +166,10 @@ export type ServerMessage =
        * miss counter and the turn sequence); `disconnect` replays as `bench`
        * (does neither). Explicit, because inferring it from the sequence number
        * is fragile.
+       *
+       * `timeout` is now the rare one: an expired clock normally arrives as a
+       * `move` with `auto` set, and only a board with no legal move left — which
+       * should not be reachable while the game is running — falls back to here.
        */
       reason: "timeout" | "disconnect";
       benched: boolean;
