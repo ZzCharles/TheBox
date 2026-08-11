@@ -39,13 +39,8 @@ export const SFX_NAMES: readonly SfxName[] = [
 
 /** Length of each sound, in seconds. */
 export const SFX_SECONDS: Record<SfxName, number> = {
-  // A drawn line is a stroke, not an impact, and 45ms is impact length — there
-  // is no room in it for an attack and a travel. 75ms is still shorter than the
-  // gap between two taps.
-  tick: 0.075,
-  // A latch is caught, not left to ring. 45ms also clears the 70ms spacing used
-  // when one line closes two boxes, so they read as two clicks, not one smear.
-  click: 0.045,
+  tick: 0.045,
+  click: 0.09,
   thunk: 0.15,
   whoosh: 0.4,
   clack: 0.06,
@@ -125,99 +120,42 @@ type Generator = (out: Float32Array, sr: number) => void;
 
 const GENERATORS: Record<SfxName, Generator> = {
   /**
-   * Line placed — graphite dragged across paper. By far the most-heard sound in
-   * the game, and the one the 2026-08-10 playtest named first. Chosen from three
-   * candidates on 2026-08-10 ("Graphite").
-   *
-   * It was a 45ms band of noise with a 2600Hz sine under it: an impact, and an
-   * electronic one. Drawing a line is neither.
-   *
-   * ⚠️ **The grains are the sound. Everything else is support.** A first attempt
-   * modulated the friction band with a smoothed noise source at 110Hz and was
-   * rejected on the spot — 110Hz is a slow wobble, and paper has no wobble in
-   * it. Graphite catching on paper fibres is HUNDREDS OF TINY IMPACTS A SECOND,
-   * so the tooth here is built from actual impulses: sparse spikes, each one a
-   * fibre giving way, bandpassed into a short scratch. Replace them with any
-   * kind of smooth modulation and this is a hiss again.
-   *
-   * The rest: a quiet continuous hiss underneath so it reads as one stroke
-   * rather than a rattle, a band that dulls as it travels (pressure lifting at
-   * the end of a stroke), and 4ms of attack — the point biting. No pitched
-   * partial anywhere; a sine is what made the original sound like a device.
+   * Line placed. Crisp and dry, and by far the most-heard sound in the game —
+   * a narrow band of noise with a hint of pitch under it, gone in 8ms.
    */
   tick(out, sr) {
     const rand = noise(0x5eed01);
-    const grit = noise(0x9a17e5);
     const hi = lowpass(sr);
     const lo = lowpass(sr);
-    const grainHi = lowpass(sr);
-    const grainLo = lowpass(sr);
-
     for (let i = 0; i < out.length; i++) {
       const t = i / sr;
-      const u = i / out.length;
       const n = rand();
-
-      // Friction, in a bright band that closes over the stroke.
-      const hiss = hi(n, 9000 - 3500 * u) - lo(n, 1800);
-
-      // One fibre catching. The threshold sets how sparse the grains are, and
-      // sparse is what makes them audible as grains rather than as more noise.
-      const g = grit();
-      const spike = Math.abs(g) > 0.955 ? g * 3.2 : 0;
-      const grain = grainHi(spike, 6800) - grainLo(spike, 2200);
-
-      const env = Math.min(1, t / 0.004) * decay(Math.max(0, t - 0.004), 0.021);
-
-      out[i] = (hiss * 0.45 + grain * 1.5) * env;
+      // Two lowpasses subtracted make a rough band-pass, which is all the shape
+      // a 45ms sound needs.
+      const band = hi(n, 5200) - lo(n, 900);
+      out[i] = band * decay(t, 0.008) * 0.9 + Math.sin(2 * Math.PI * 2600 * t) * decay(t, 0.005) * 0.25;
     }
   },
 
   /**
-   * Box claimed — a padlock snapping shut. Asked for "more clicky, like when you
-   * press a padlock"; chosen from three candidates on 2026-08-10 ("Tight latch",
-   * the driest of them).
-   *
-   * It used to be a struck wooden block with a SINE for a body, and that is why
-   * it never read as a latch: a sine is a tone, and a padlock is metal. Metal
-   * rings inharmonically, so the body here is three partials at 3600/5400/7300
-   * that share no common fundamental — deliberately not an octave or a fifth,
-   * for the same reason `click`'s old 1.48x partial was not a 2x.
-   *
-   * Damped hard (5ms) because this take is the dry one: the metal is heard, then
-   * immediately caught. A second small contact at 5ms is the shackle seating,
-   * which is what makes it a mechanism rather than a pop — `thunk` does the same
-   * trick at 38ms, far enough out that you hear it as a separate event.
-   *
-   * Half the length it was (45ms, was 90ms). Two boxes closed by one line play
-   * 70ms apart, so they now clear each other completely instead of smearing.
+   * Box claimed. Fuller and woody: a struck block, with the small downward bend
+   * in pitch that stops a sine sounding like a test tone.
    */
   click(out, sr) {
     const rand = noise(0xc11c4a);
     const lo = lowpass(sr);
-    const lo2 = lowpass(sr);
-
+    let phase = 0;
+    let phase2 = 0;
     for (let i = 0; i < out.length; i++) {
       const t = i / sr;
+      const f = 660 - 90 * Math.min(1, t / 0.05);
+      phase += (2 * Math.PI * f) / sr;
+      // 1.48x rather than 2x — wood is inharmonic, and an exact octave rings.
+      phase2 += (2 * Math.PI * f * 1.48) / sr;
       const n = rand();
-
-      // The contact: bright, wide, and over almost before it began.
-      const snap = (n - lo(n, 4200)) * decay(t, 0.0018);
-
-      // Inharmonic partials — the sound of small, hard metal.
-      const ring =
-        (Math.sin(2 * Math.PI * 3600 * t) * 0.5 +
-          Math.sin(2 * Math.PI * 5400 * t) * 0.32 +
-          Math.sin(2 * Math.PI * 7300 * t) * 0.18) *
-        decay(t, 0.005);
-
-      // A trace of the lock's mass, so it is not purely surface.
-      const mass = Math.sin(2 * Math.PI * 620 * t) * decay(t, 0.01) * 0.12;
-
-      const st = t - 0.005;
-      const seat = st > 0 ? (n - lo2(n, 5200)) * decay(st, 0.0024) * 0.42 : 0;
-
-      out[i] = snap + ring * 0.42 + mass + seat;
+      const knock = (n - lo(n, 1000)) * decay(t, 0.004) * 0.6;
+      out[i] =
+        Math.sin(phase) * decay(t, 0.03) * 0.7 + Math.sin(phase2) * decay(t, 0.016) * 0.28 + knock;
     }
   },
 

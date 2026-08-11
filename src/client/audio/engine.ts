@@ -151,3 +151,16 @@ export function setSoundEnabled(on: boolean): void {
 export function soundReady(): boolean {
   return ctx !== null;
 }
+
+/**
+ * The mute preference, for audio that does not go through this engine.
+ *
+ * `voice.ts` speaks through the platform synthesiser rather than the
+ * AudioContext, so it cannot be gated by `play()` — but it must obey the same
+ * toggle, and reading it from here rather than from `prefs()` keeps one answer
+ * to "is this game making noise" instead of two that can disagree the moment
+ * Settings changes it.
+ */
+export function soundEnabled(): boolean {
+  return enabled;
+}

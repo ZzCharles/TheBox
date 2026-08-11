@@ -2,9 +2,10 @@
 
 > **Name:** **Tiki** (was BOX; renamed 2026-08-02).
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** M0–M7.5 built, deployed and played. **M8 (PWA) is the last milestone; the
-> icons are the only real blocker. Live, `main` and `origin/main` are all level.**
-> **Last updated:** 2026-08-11
+> **Status:** M0–M7.5 built and played. **M8 (PWA) is the last milestone; the icons are the
+> only real blocker.** ⚠️ **The 2026-08-12 playtest fixes are committed but NOT DEPLOYED —
+> live is a version behind (§0.1).**
+> **Last updated:** 2026-08-12
 
 ---
 
@@ -30,37 +31,52 @@ This file stays the engineering reference.
 
 ---
 
-## 0.1 START HERE — handoff, 2026-08-11
+## 0.1 START HERE — handoff, 2026-08-12
 
-**M7.5 is done bar one design decision, and everything is deployed.** The live site, `main`
-and `origin/main` are all level for the first time in the project's history — there is no
-hidden state, nothing held back, nothing uncommitted. 180 tests pass.
-
-*(This session ran from the 2026-08-10 playtest past midnight, so the commits are dated
-2026-08-11 while the work is described throughout as 2026-08-10. Same session.)*
+**M7.5 is done bar one design decision. ⚠️ The newest work is NOT deployed.** `main` carries
+the 2026-08-12 playtest fixes; the live site is still on `6b38234a` from 2026-08-10. 176
+tests pass — four fewer than the 180 this file used to claim, because the `tick`/`click`
+character tests were reverted with the sounds they guarded (§13.1).
 
 ### The next step, in one line
 
-**M8 — the PWA.** It is the last milestone, the game itself is finished, and **the icons are
-the only real blocker** (§14). Everything else in M8 is a day of plumbing.
+**Deploy, then play it.** Everything below landed on 2026-08-12 and **not one pixel of it
+has been seen by a human** — the preview pane does not composite, so no screenshot of any of
+it exists (see the gotchas). After that, **M8 — the PWA**, where the icons are the only real
+blocker (§14).
 
-Before that, two things are waiting on the owner PLAYING rather than on code. Neither blocks
-M8; both are one-line changes when the answer arrives:
+### What landed 2026-08-12, from the playtest below
+
+| Area | What changed | Where |
+|---|---|---|
+| 🔴 **Hot-seat freeze** | A shot clock placing the FINAL line left the game with no result screen and no input. Fixed. | §12.5 |
+| **Sound** | `tick` and `click` **reverted** to their pre-recut versions, owner's call. | §13.1 |
+| **Streak callout** | Moved off the board and onto the **scoreboard**; real animated flames, a flame sheet and embers; a fifth tier, **Insanity**; voice lines. | §12.4.1 |
+| **Twist in hot seat** | The flame badge and shop row existed only online. Extracted to `twistHud.ts`, mounted by both screens. | §10.5 |
+
+⚠️ **One of these is a taste reversal, not a fix.** The `tick`/`click` revert puts back the
+pair the 2026-08-10 playtest called *"okay. Not incredible, not bad. Which is not good
+enough."* The owner asked for it after hearing the recut in a real game, which beats the
+earlier verdict — but nobody should be surprised when the old complaint returns, and §13.1's
+method note is what to reach for when it does.
+
+Three things are waiting on the owner PLAYING rather than on code. None blocks M8; each is a
+one-line change when the answer arrives:
 
 | Question | Where | The one line |
 |---|---|---|
 | Does the doubled endgame clock feel right? Decides whether the parked host off-switch is ever needed. | §16 #6 | `ENDGAME_CLOCK_*` |
-| Do the streak tiers fire too often? `Nice` at 4 boxes may be routine. | §12.4.1 | `STREAK_TIERS` |
+| Do the streak tiers fire at the right rate — including whether **Insanity at 16** is reachable at all? | §12.4.1 | `STREAK_TIERS` |
 | Is the Wildcard reachable enough to matter? Ten boxes cannot be banked until ~turn 93 of 132. | §10.6 | `WILDCARD_COST` |
 
-### What shipped 2026-08-10, in four deploys
+### Deploy history
 
 | Version | Carried |
 |---|---|
 | `f1d86651` | Timeout auto-move (§6.3.1), doubled endgame clock (§6.3.2), confirm-tap |
 | `a8660bb2` | The `[hidden]` fix (§10.6), `tick` and `click` recut (§13.1) |
 | `2d2bb6e1` | Board size in hot seat |
-| `6b38234a` | Streak callouts (§12.4.1) — **current** |
+| `6b38234a` | Streak callouts (§12.4.1) — **live, and now one version behind `main`** |
 
 ### Five things that will bite you if you do not know them
 
@@ -223,7 +239,8 @@ All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twis
 | Board rendering + input | ✅ Done, design values applied, 0.7 ms/frame |
 | Twist mode | ✅ Done, with the shrink floor |
 | Screens: landing, settings, lobby, game | ✅ Done — full colour, type and behaviour pass |
-| **Sound** | ✅ Done — eight synthesised sounds, 46 tests. `tick` and `click` recut at M7.5 (§13.1). |
+| **Sound** | 🟡 Eight synthesised sounds, 42 tests. `tick` and `click` were recut at M7.5 and **reverted 2026-08-12** — back to a pair a playtest also called not good enough (§13.1). |
+| **Streak callouts** | ✅ Five tiers over the scoreboard, animated fire, embers, and a placeholder voice (§12.4.1) |
 | **Twist burn** | ✅ Done — fuse, ignition, spreading front, flame, ash. 2.6 ms worst frame. |
 | **Start sequence** | ✅ Mark draws, flares, hits, shakes; board rolls in |
 | **Endgame shatter** | ✅ Done — crack, flight, count-up, crown. 5.4 ms worst frame on 12×12 |
@@ -249,6 +266,50 @@ Two things only the real deploy revealed:
   environment; see the secure-context invariant in §17.
 
 ### Playtest log
+
+- **2026-08-12, hot seat on the deployed build.** Four reports, all actioned the same day.
+  The most valuable one is the freeze, because it is the first hard *fault* found in single
+  player and it had a cause nobody would have found by reading the online code.
+
+  🔴 **1. "I let the auto click draw last 2 lines to end the game. The game froze. I had to
+  close and restart."**
+
+  Real, reproduced, and fixed. `hotseat.ts`'s clock places a line on timeout (§6.3.1) but
+  **never checked `gameOver` on that path** — only the tap path called `finish()`. So the
+  clock could place the final line of a match, the state went to `over`, the interval's
+  `if (state.phase === "over") return` guard then early-returned forever, and the result
+  overlay was never raised. Input was dead too, because `canAct` requires `playing`. A
+  finished board and nothing to press: exactly "frozen".
+
+  ⚠️ **The online screen was never exposed to this**, which is why it survived review. Online
+  derives the endgame from the replayed mirror (`state.phase === "over"`), so every path
+  reaches the result by construction. Hot seat hand-writes its exit, and a hand-written exit
+  can be missed in one branch. See §12.5 — that asymmetry is worth knowing before adding any
+  new way for a hot-seat game to end.
+
+  🔴 **2. "No fire warning. No glowing wands"** — in single player.
+
+  Not a repeat of the §10.6 bug. **Hot seat simply never had either.** The flame badge and
+  the whole shop row were written inline in `room.ts`; `hotseat.ts` rendered a scoreboard, a
+  board, a pill and a toast, and nothing else. So Twist on one device really did have no
+  collapse warning and no way to buy a Wildcard — the mechanics ran in the rules engine with
+  no representation on screen at all.
+
+  Fixed by **extracting rather than copying**: `twistHud.ts` now owns the markup and the
+  behaviour, and both screens mount it (§10.5). Copying would have left two versions of a
+  feature whose entire history is being invisible in slightly different ways.
+
+  🔊 **3. "Sound isn't good. Revert."** Done — see §13.1, and the warning about it in §0.1.
+
+  💡 **4. The celebration.** Four asks, all built (§12.4.1): put it **at the top over the
+  scoreboard** rather than over the board; **there is no flaming animation** (correct — the
+  tiers were static CSS gradients); a tier above WILDFIRE called **Insanity**, where **every
+  further box re-celebrates**; and **a voice over it**.
+
+  On the voice: it is **speech synthesis for now, with the sampled path built behind the same
+  call** (`voice.ts`). The owner's ElevenLabs recordings drop in through
+  `registerVoiceSample` without either file changing shape. ⚠️ The synthesiser is a
+  placeholder and sounds like one — judge the timing on it, not the delivery.
 
 - **2026-08-10, second session, several games on the deployed build.** Four reports. One is
   a **rules exploit**, not a UX complaint, and it is the most serious thing in this file.
@@ -525,9 +586,12 @@ Box/
       ├─ ui/
       │  ├─ router.ts
       │  ├─ screens/           ← landing, lobby, game, results
-      │  └─ components/        ← scoreboard, shotclock, shop, toast, playButton
+      │  ├─ components/        ← scoreboard, shotclock, shop, toast, playButton
+      │  ├─ twistHud.ts        ← flame badge + shop row. SHARED by room and hot seat.
+      │  └─ streak.ts          ← the chain callout, over the scoreboard
       ├─ audio/
-      │  ├─ waveforms.ts       ← PURE. the seven sounds, synthesised. tested.
+      │  ├─ waveforms.ts       ← PURE. the eight sounds, synthesised. tested.
+      │  ├─ voice.ts           ← spoken streak lines: synth now, samples later
       │  └─ engine.ts          ← unlock on first gesture, voices, ducking, mute
       └─ styles/
 ```
@@ -1230,6 +1294,25 @@ one fact, one of them wrong about the rules, is worse than one.
 
 Both Twist mechanics were invisible in play. The information existed; nobody saw it.
 
+⚠️ **In hot seat the information did not even exist** — found 2026-08-12. The flame badge and
+the shop row were written inline in `room.ts`, and `hotseat.ts` rendered a scoreboard, a
+board, a pill and a toast and nothing else. Single-player Twist therefore ran with no
+collapse warning and no way to buy a Wildcard at all, while the rules engine cheerfully
+collapsed rings and priced Wildcards nobody could reach.
+
+**Both now live in `src/client/ui/twistHud.ts`, mounted by both screens.** It exports
+`BURN_WARNING_HTML` and `SHOP_HTML` for the caller to place, plus `createTwistHud(root, {
+onBuy, onArm })` — the two callbacks being the only real difference between the screens
+(online sends `buy`/`arm`; hot seat calls `buyWildcard`/`armWildcard` directly).
+
+⚠️ **Extracted rather than copied, deliberately.** This is a feature whose entire recorded
+history is being invisible in slightly different ways (§10.6), so a second copy is exactly
+the wrong shape — the next fix would land on one screen and not the other, which is how this
+bug was born. Verified 2026-08-12 in both: badge hidden at kickoff, appearing at two rounds
+out with the ring draining, hiding again once no collapse is possible, buy taking 10 boxes
+for one charge, arm consuming it, **and `.board-wrap` holding one single height (557px)
+across an entire hot-seat game** — the §10.0 invariant survives the new rows.
+
 **The collapse warning is a flame badge ON the board.** A 2.75rem ring in the board's
 top-right corner, absolutely positioned inside `.board-wrap` so it costs the layout nothing
 (§10.0). The ring is a dial that drains as the collapse approaches — full two rounds out,
@@ -1485,15 +1568,23 @@ A chain is already the most exciting thing that happens in this game and current
 a small "+1 GO AGAIN" flourish (§12.2). The ask is to make a *big* chain an event, the way
 Candy Crush's Sugar Crush is: a phrase slamming onto the screen with a voice line behind it.
 
-Tiers, **counting boxes claimed in a single turn**. Wording settled 2026-08-10 — the ladder
-climbs on its own, so a muted player still reads the rank from the word:
+Tiers, **counting boxes claimed in a single turn**. Wording settled 2026-08-10, `Insanity`
+added 2026-08-12 — the ladder climbs on its own, so a muted player still reads the rank from
+the word:
 
 | Boxes | Word | Heat |
 |---|---|---|
 | 4–6 | **Nice** | a warm ember glow behind the word |
 | 7–9 | **Blazing** | flames licking the letters from below |
 | 10–12 | **Ruthless** | fully alight, embers drifting up |
-| 13+ | **WILDFIRE** | the word burns and the board's vignette flares with it |
+| 13–15 | **WILDFIRE** | the word burns and the vignette flares with it |
+| 16+ | **Insanity** | white-hot and shaking — **and it re-fires on every further box** |
+
+**`Insanity` is the only rung that repeats.** Every other tier fires once, on the way up.
+Past sixteen there is no higher word to climb to, so repetition is the only escalation left,
+and a turn that just keeps going should keep being celebrated rather than going quiet at
+exactly its most absurd. `isTopStreakTier` in `constants.ts` is what makes that one rung
+different — not a magic number in the UI.
 
 **Fire is the through-line, and it is already built.** `burn.ts` owns a flame ramp, a
 particle pool and a tile-heat gradient (§10.4), all tuned and all measured at 2.6 ms worst
@@ -1519,44 +1610,124 @@ Two things to settle before building it:
 the player is still holding the clock — this is an overlay in the `.board-wrap`, like the
 flame badge, never a layout row (§10.0).
 
-### 12.4.1 What was built, 2026-08-10
+### 12.4.1 What was built — 2026-08-10, rebuilt 2026-08-12
 
-`src/client/ui/streak.ts` plus one block in `game.css`. **DOM, not canvas** — it inherits
-`.board-wrap`'s absolute positioning like the flame badge, carries `pointer-events: none`
-throughout, and stays out of the frame budget (§10.3) completely.
+`src/client/ui/streak.ts`, `src/client/audio/voice.ts`, and one block in `game.css`. **DOM,
+not canvas** — it carries `pointer-events: none` throughout and stays out of the frame
+budget (§10.3) completely.
+
+**It lives over the SCOREBOARD** (moved 2026-08-12, owner's call: *"the popup celebration
+should show up at the top, over the scoreboard area"*). It used to be centred in
+`.board-wrap`, which put a 4rem word squarely over the squares the player was still trying
+to tap.
+
+⚠️ **It is anchored to the scoreboard ELEMENT, not to an offset from the top**, and that is
+load-bearing rather than tidiness: **hot seat has no header row and the online game does**,
+so the scoreboard sits at a different y on each screen and any constant would have been
+right on exactly one of them. `createStreak(host)` takes the scoreboard host and centres
+itself on it.
+
+⚠️ **Mount it AFTER `createScoreboard`.** That function does `host.innerHTML = ""` on
+construction, so a callout created first is deleted on the spot — silently, since nothing
+else holds a reference. Hot seat used to build the streak first and had to be reordered.
 
 **One element that climbs, not one slam per tier.** A ten-box turn shows `Nice`, swaps to
 `Blazing`, then `Ruthless` as the boxes land. Firing a separate callout per rung would stack
-three animations mid-chain, which is noise rather than drama.
+three animations mid-chain, which is noise rather than drama. The exception is `Insanity`,
+which re-fires per box by design (§12.4).
 
-**It clears itself after 850ms even while the chain is still running.** The word sits over
-the middle of the board and the player is mid-chain against the clock; parking it there for
-the whole run would hide the squares they are trying to tap. It cannot literally block a
-tap, but obscuring the board under a shot clock is the same problem wearing a different hat.
+**It clears itself after 850ms even while the chain is still running.** The player is
+mid-chain against the clock, and a word parked over the scoreboard hides the one number they
+are playing against.
 
-⚠️ **The slam scales the WORD, not the wrapper.** `.streak` is `inset: 0`, so animating it
-would scale a box the size of the whole board out past the wrap — comfortably wider than a
-phone, and the cost is a horizontal scrollbar flashing on every big chain. Hence
-`.streak-word`. Verified at 375px: the longest word settles at 313px against a 359px board,
-and the page never scrolls sideways.
+#### Four elements, because each owns exactly one animation
+
+The 2026-08-12 report was *"there's no flaming animation"*, and it was correct: the tiers
+were **static CSS gradients** clipped to the text. Nothing moved but the 260ms slam. What
+moves now:
+
+| Layer | Animates | What it is |
+|---|---|---|
+| `.streak-flames` | `scale` | Three offset radial tongues rising and guttering behind the word |
+| `.streak-word` | `transform` | The slam — overshoot 2.1x and settle |
+| `.streak-ink` | `background-position`, `translate` | Fire running THROUGH the letters, plus the Insanity shake |
+| `.ember` × n | `translate`, `scale` | 4 → 20 sparks by tier, each with its own drift, delay and duration |
+
+⚠️ **This split is not decoration, it is the reason the fire does not stop.** CSS gives an
+element ONE `animation` property. Put the slam and the burn on the same element and the
+later rule silently wins — which means the flames die for the 260ms everyone is actually
+looking at. The `translate`/`transform` split between ink and word is the same trick one
+level down: separate properties compose, one property does not.
+
+⚠️ **The slam scales the WORD, not `.streak`**, which is `inset: 0`. Animating that would
+scale a box the size of the host and flash a horizontal scrollbar on every big chain. The
+old version clipped itself with `overflow: hidden`; that stopped being possible on a
+scoreboard-sized host, so **`.game` carries `overflow: hidden`** instead — a stronger
+statement of the same rule, and one no child can defeat by growing.
+
+**The ember scatter comes from per-ember custom properties** set in `streak.ts`, not from
+twenty CSS rules. Without them the sparks rise in one rank, in step, which reads as a machine
+rather than a fire. Rebuilt on every fire, which is what makes a re-firing `Insanity` throw a
+fresh handful each time.
+
+#### The voice
+
+`voice.ts`, added 2026-08-12. **Two backends, one call.** `say(word)` plays a registered
+recording if there is one and otherwise falls back to `SpeechSynthesis`, so the owner's
+ElevenLabs files drop in through `registerVoiceSample` without `streak.ts` changing at all.
+
+- ⚠️ **The synthesiser is a placeholder and sounds like one** — whatever voice the device
+  ships, materially different across iOS, Android and desktop. Judge the timing on it, not
+  the delivery.
+- It obeys the mute preference through `soundEnabled()` in `engine.ts` rather than reading
+  `prefs()` itself, so there is one answer to "is this game making noise". **Verified**: with
+  `box.prefs.sound` false and the page reloaded, nothing is spoken and the visual callout
+  still plays.
+- It **cancels before every line**. `Insanity` re-fires per box, so without that a twenty-box
+  turn queues five utterances and is still talking into the next player's turn.
+- `silence()` runs on teardown, because `speechSynthesis` belongs to the window and an
+  utterance outlives the screen that started it.
+- Recordings would be the **first sampled audio in the project**, which §13 avoided
+  deliberately. Ship `.mp3` — every target decodes it, and that sidesteps the codec fallback
+  that decided §13 in the first place.
 
 **A haul is a TURN, not a line.** It accumulates across the run of continuation moves and
 resets when the turn changes hands — tracked in `room.ts` beside the broadcast handler
 (so it survives a view rebuild) and in `hotseat.ts`'s `onCommit`.
 
-**Still missing: the voice lines**, which are the owner's to produce and are gated on the
-§12.4 decisions about bundle size and iOS codec fallback.
+⚠️ **The thresholds remain unproven, and `Insanity` at 16 is the least proven of all.**
+§12.4 asked for real games; two simulated players disagreed too sharply to pick from. A
+16-box turn may be something almost nobody ever sees, which is either the point or dead
+code — one game will tell you. `STREAK_TIERS` is the one line.
 
-⚠️ **The thresholds remain unproven.** §12.4 asked for real games; two simulated players
-disagreed too sharply to pick from — the numbers and the reasoning are in `STREAK_TIERS`,
-and changing them is one line.
+**Testing notes worth keeping.** The debug surface exposes `streak` in DEV
+(`window.__box.streak`), because a chain big enough to reach the top takes a whole game to
+arrive by playing. Verified 2026-08-12 through it: every rung shows the right word and ember
+count, `wordMidY` equals `scoreboardMidY` at all five tiers, 17 and 18 boxes each re-fire
+while 7→8 correctly does not, and no tier makes the page scroll sideways.
 
-**Testing note worth keeping.** The debug surface exposes `streak` in DEV
-(`window.__box.streak`), because a chain big enough to reach `WILDFIRE` takes a whole game
-to arrive by playing, which makes the top of the ladder untestable by hand. Also: **CSS
-animations do not advance in a hidden browser pane**, so any measurement taken mid-animation
-there reads the frozen first frame — two separate "the word does not fit" results turned out
-to be a transform stuck at 2.1x, not a bug.
+⚠️ Also: **CSS animations do not advance in a hidden browser pane**, so any measurement taken
+mid-animation there reads the frozen first frame — two separate "the word does not fit"
+results turned out to be a transform stuck at 2.1x, not a bug. Assert on structure and
+computed `animation-name`, never on an animated value.
+
+### 12.5 Hot seat ends its own games, and that is a trap
+
+**Online cannot miss the endgame; hot seat can.** The online screen derives it from the
+replayed mirror — `state.phase === "over"` — so every path that reaches the final state
+reaches the result screen by construction. Hot seat hand-writes the exit, and on 2026-08-12
+a playtest found the branch that had been missed since M7.5: **the shot clock could place
+the final line of a match and never call `finish()`**.
+
+What the player saw: a complete board, no result, no rematch button, and no response to any
+tap. The interval was still running but its own `if (state.phase === "over") return` guard
+short-circuited it forever, and `canAct` refuses input outside `playing`. Both guards were
+individually correct. Together they made a frozen game.
+
+⚠️ **Every way a hot-seat game can end needs its own route to `finish()`.** There are two
+today — a tap (`onCommit`) and the clock (`autoMoveLine`, plus the `skipTurn` fallback) — and
+both `MoveOutcome` and `SkipOutcome` carry `gameOver`, so neither has an excuse. If a third
+is ever added, this is the thing it will forget.
 
 ## 13. Audio
 
@@ -1568,8 +1739,8 @@ number rather than opening a DAW.
 
 | Name | Used for | Character | Length |
 |---|---|---|---|
-| `tick` | Line placed | Graphite on paper: friction plus fibre grains | 75ms |
-| `click` | Box claimed | Padlock latch: bright snap, inharmonic metal | 45ms |
+| `tick` | Line placed | Filtered noise band — **reverted 2026-08-12**, §13.1 | 45ms |
+| `click` | Box claimed | Struck wood, bending down in pitch — **reverted 2026-08-12** | 90ms |
 | `thunk` | Play-button lid · Wildcard bought | Mechanical latch: strike, body, catch | 150ms |
 | `whoosh` | Board shrink | Noise behind a sweeping cutoff | 400ms |
 | `clack` | Endgame piece lands | Tile on tile, harder than `click` | 60ms |
@@ -1583,9 +1754,9 @@ travelling out along the box boundaries — the sound doing what the picture doe
 and they have their own test, because they are quiet enough to lose while tuning
 the rip on top of them and their absence is invisible in a waveform view.
 
-**`tick` and `click` were recut at M7.5** (2026-08-10) after the playtest called the set
-"not good enough" and named both. See §13.1 — it is mostly a note about how to run a taste
-change, which is not something the rest of this file has had to describe.
+**`tick` and `click` were recut at M7.5 (2026-08-10) and REVERTED on 2026-08-12.** The
+current pair is the original one. See §13.1 — which is now mostly a note about how to run a
+taste change, and a caution about what reverting one costs.
 
 `waveforms.ts` is **pure** — a name and a sample rate in, a `Float32Array` out — for the
 same reason `rules.ts` is: it makes the part with the interesting logic testable under
@@ -1597,7 +1768,8 @@ precisely the short sharp sounds where it is hardest to diagnose.
 
 ⚠️ **Length, clipping and endpoints say nothing about CHARACTER.** An impact and a stroke of
 the same length pass every one of those identically, and character is the only thing anyone
-has ever complained about. Four tests now measure it directly — see §13.1.
+has ever complained about. Four tests measured it directly and **went with the revert** on
+2026-08-12, because each one asserted a property of the recut specifically — see §13.1.
 
 Relative loudness lives in one table (`SFX_PEAK`) and is asserted by a test:
 `blip < tick < click < fanfare`. A sound you hear every three seconds has to sit under one
@@ -1630,10 +1802,33 @@ special handling at the call site.
 
 ---
 
-### 13.1 Recutting `tick` and `click` — and how to run a taste change
+### 13.1 Recutting `tick` and `click`, reverting them, and how to run a taste change
 
-Both were replaced on 2026-08-10 after the playtest verdict *"okay. Not incredible, not bad.
-Which is not good enough."* What shipped:
+#### ⚠️ REVERTED 2026-08-12 — read this before re-cutting anything
+
+The owner played the recut in a real game and said **"sound isn't good. Revert."** Done:
+`git revert` of `c6a1aa3`, which took `waveforms.ts` and its four character tests back to the
+pre-2026-08-10 state. **The pair in the game today is the original pair.**
+
+Two things about this that matter more than the sounds:
+
+1. **This restores a pair the previous playtest also rejected**, as *"okay. Not incredible,
+   not bad. Which is not good enough."* So the honest reading is not "the old ones were
+   right" — it is that the recut was **worse than mediocre**, and mediocre is where we now
+   sit. Expect the original complaint to come back. When it does, the method below is the
+   thing to reach for, not another single guess.
+2. **The four character tests went with it, and had to.** Each asserted a property of the
+   recut specifically — that `tick` peaks 4.9ms in, that `click`'s spectral centroid sits
+   above 3000Hz. Against the restored sounds they fail by design. Test count went 180 → 176.
+   ⚠️ **Do not "fix" those tests to pass the old sounds.** A character test is only worth
+   anything if it encodes a decision someone actually made; retro-fitting the thresholds to
+   whatever is currently in the file produces a test that can never fail and never informs.
+
+The recut designs are kept below, because they are the most specific description of a taste
+target this project has, and because the next attempt should start by knowing what has
+already been tried and rejected.
+
+#### What the recut was (2026-08-10 → 2026-08-12)
 
 - **`tick` — graphite on paper.** Sparse impulses, one per fibre giving way, bandpassed into
   short scratches, over a quiet friction hiss that dulls as the stroke travels. 4ms of
@@ -1664,9 +1859,10 @@ rather than opinions:
 2. **`click`'s first version had a sine for a body.** A sine is a tone and a padlock is
    metal. Inharmonic partials, not a fundamental.
 
-**Character is now tested**, because none of the existing tests could tell any of these
-versions apart — an impact and a stroke of the same length pass length, clipping and
-endpoint checks identically. The four in `waveforms.test.ts`:
+**Character WAS tested** — the four below are gone with the revert, and are recorded here so
+the next attempt can reinstate the idea rather than the numbers. None of the existing tests
+could tell any of these versions apart: an impact and a stroke of the same length pass
+length, clipping and endpoint checks identically.
 
 | Test | Guards against | Measured |
 |---|---|---|
@@ -1845,13 +2041,22 @@ have passed the sound that failed, which is the entire point of writing it.
          **picking Grand with four players and then dropping to two gives the size back** —
          otherwise Play starts a board the table is not allowed to choose. The online lobby
          re-checks the same thing on Start, for the same reason.
-      9. 🟡 **BUILT 2026-08-10 — streak callouts, minus the voice lines.** The word slams
-         in and climbs its own ladder as the chain grows; `streak.ts` plus one CSS block,
-         DOM rather than canvas so it cannot touch the frame budget or block a tap.
-         ⚠️ **The thresholds are still the original guesses.** §12.4 asked for them to be
-         checked against real games; simulation could not settle it (see `STREAK_TIERS`),
-         so they need your eyes. Voice lines remain yours to produce — they would be the
-         first sampled audio in the project and need the §12.4 decisions first.
+      9. ✅ **BUILT 2026-08-10, rebuilt 2026-08-12 — streak callouts, with a voice.** The
+         word slams in and climbs its own ladder as the chain grows. The 2026-08-12 pass
+         moved it **over the scoreboard**, gave it **actual moving fire** (a flame sheet, a
+         gradient running through the letters, and embers — it was static gradients before),
+         added **Insanity at 16** which re-fires on every further box, and added a voice via
+         `voice.ts`. ⚠️ **The thresholds are still guesses** and `Insanity` is the least
+         proven of them — simulation could not settle it (see `STREAK_TIERS`), so they need
+         your eyes. The voice is **speech synthesis as a placeholder**; your ElevenLabs
+         recordings drop in through `registerVoiceSample` with no other change.
+      10. ✅ **BUILT 2026-08-12 — the Twist HUD reaches hot seat.** The flame badge and shop
+         row were online-only, so single-player Twist had no collapse warning and no
+         Wildcard. Extracted to `twistHud.ts` and mounted by both screens rather than
+         copied — see §10.5 for why copying was the wrong shape.
+      11. ✅ **BUILT 2026-08-12 — the hot-seat endgame freeze.** A shot clock placing the
+         final line left a finished board with no result screen and no input. §12.5, which
+         also explains why the online screen could never have hit it.
 - [ ] **M8 — PWA + ship.** ⬅ **NEXT, and the last milestone.** §14 is the spec.
 
       Already done, so do not redo it: `index.html` carries `theme-color`,
@@ -1892,7 +2097,17 @@ means debugging game logic and network logic simultaneously, which is miserable.
    complaint again. `WILDCARD_COST` in `constants.ts` is the one value; nothing else moves.
 
    Also open, and cheaper to answer: are the streak tiers right? (§12.4.1, `STREAK_TIERS`.)
-   Simulation could not settle them and both measurements are recorded there.
+   Simulation could not settle them and both measurements are recorded there. **`Insanity` at
+   16 joined the ladder on 2026-08-12 and is the least proven rung of all** — it may be
+   something no game ever reaches, which is either the point or dead code.
+
+7. **Does the reverted `tick`/`click` pair actually satisfy?** 🔴 **New 2026-08-12.** The
+   recut was reverted on the owner's instruction, which puts back a pair an earlier playtest
+   called *"okay. Not incredible, not bad. Which is not good enough."* Both pairs have now
+   been rejected by someone who heard them in a real game. If the complaint returns, do
+   **not** guess a third time — §13.1's method (parameterise the generators, render a spread
+   of three or four, let the person who can hear it pick) is the only approach that has ever
+   converged here.
 4. **Watch-to-play ratio.** With 8 players on a 10×10 board you act for ~3 minutes and watch
    for ~19. The shot clock and the shrinking board are the mitigations; whether they're
    enough is a playtest question, not a design one. If they aren't, the earliest lever is

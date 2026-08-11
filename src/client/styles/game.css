@@ -923,6 +923,15 @@ input:focus-visible {
   flex-direction: column;
   padding: max(0.5rem, env(safe-area-inset-top)) 0.5rem
     max(0.5rem, env(safe-area-inset-bottom));
+  /*
+   * Nothing inside the game may produce a page scrollbar. The streak callout is
+   * why this is here: it slams in at 2.1x and throws embers outside its host, and
+   * it used to clip itself — which stopped working the moment it moved onto the
+   * scoreboard, a row far too short to contain either. Clipping at the screen is
+   * both the honest statement of the rule and the one no child can defeat by
+   * growing. `.game` fills the viewport and never scrolls, so nothing is lost.
+   */
+  overflow: hidden;
 }
 
 .board-wrap {
@@ -975,6 +984,8 @@ input:focus-visible {
 /* Scoreboard ------------------------------------------------------------ */
 
 .scoreboard {
+  /* The streak callout centres itself on this row, absolutely (§12.4.1). */
+  position: relative;
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(var(--player-count), minmax(0, 1fr));
@@ -1315,9 +1326,25 @@ input:focus-visible {
 }
 
 /*
- * Streak callouts (§12.4). Absolutely positioned inside .board-wrap so it costs
- * the layout nothing, and pointer-events: none throughout — the player is
+ * Streak callouts (§12.4).
+ *
+ * **It sits over the SCOREBOARD** (moved 2026-08-12, owner's call). Centred in
+ * `.board-wrap` it covered the squares the player was still trying to tap; over
+ * the scores is both where a celebration belongs and where it costs least. It is
+ * absolutely positioned inside the scoreboard host, so it costs the layout
+ * nothing (§10.0), and `pointer-events: none` throughout — the player is
  * mid-chain on the clock and must be able to tap straight through it.
+ *
+ * Anchoring to the scoreboard rather than to a fixed offset from the top is what
+ * makes it land right on BOTH screens: hot seat has no header row, the online
+ * game does, and any constant would have been correct on exactly one of them.
+ *
+ * **Four elements, because each owns exactly one animation.** The word slams
+ * (`transform`), the ink inside it burns (`background-position`) and shakes
+ * (`translate`), the sheet behind it licks (`scale`), the embers rise. Folding
+ * the slam and the burn onto one element means two `animation` declarations
+ * fighting over one property, where the later rule silently wins and the fire
+ * stops for the 260ms everyone is actually looking at it.
  *
  * The flame colours are the ones burn.ts uses (FIRE.flameRamp in constants.ts),
  * restated here for the same reason the palette is: one vocabulary, two files.
@@ -1331,12 +1358,23 @@ input:focus-visible {
   place-items: center;
   pointer-events: none;
   z-index: 5;
-  /* Clips the slam, which overshoots to 2.1x on its way in. */
-  overflow: hidden;
+  /*
+   * NOT clipped here, unlike the old .board-wrap version. The slam overshoots to
+   * 2.1x and the embers rise past the top of the scoreboard; a host this short
+   * would cut both off. `.game` carries `overflow: hidden` instead, which is
+   * what has to be true anyway — nothing may produce a page scrollbar — and no
+   * child can defeat it by growing.
+   */
   transition: opacity 260ms ease;
 }
 
+.streak.out {
+  opacity: 0;
+}
+
+/* Outer: geometry and the slam. Never a gradient — see the four-element note. */
 .streak-word {
+  position: relative;
   font-size: clamp(2rem, 12vw, 4rem);
   font-weight: 900;
   font-stretch: 118%;
@@ -1344,78 +1382,13 @@ input:focus-visible {
   letter-spacing: 0.01em;
   text-transform: uppercase;
   text-align: center;
+  white-space: nowrap;
   will-change: transform;
 }
 
-.streak.out {
-  opacity: 0;
-}
-
-/* 4-6. A warm ember behind the word — the quietest rung on the ladder. */
-.streak[data-tier="4"] .streak-word {
-  color: rgb(255 186 74);
-  text-shadow:
-    0 0 12px rgb(255 126 44 / 55%),
-    0 2px 0 rgb(104 26 12 / 60%);
-}
-
-/* 7-9. Flames licking up the letters. */
-.streak[data-tier="7"] .streak-word {
-  background-image: linear-gradient(
-    0deg,
-    rgb(214 62 26) 0%,
-    rgb(255 126 44) 34%,
-    rgb(255 186 74) 66%,
-    rgb(255 232 168) 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 0 14px rgb(255 126 44 / 60%));
-}
-
-/* 10-12. Fully alight, and hotter at the core. */
-.streak[data-tier="10"] .streak-word {
-  background-image: linear-gradient(
-    0deg,
-    rgb(214 62 26) 0%,
-    rgb(255 126 44) 26%,
-    rgb(255 232 168) 62%,
-    rgb(255 252 240) 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 0 20px rgb(255 126 44 / 75%));
-}
-
-/* 13+. The word burns and takes the board's vignette with it. */
-.streak[data-tier="13"] .streak-word {
-  background-image: linear-gradient(
-    0deg,
-    rgb(255 126 44) 0%,
-    rgb(255 232 168) 45%,
-    rgb(255 252 240) 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 0 26px rgb(255 112 68 / 90%));
-}
-
-/* The vignette flare, WILDFIRE only. Behind the word, inside the wrap. */
-.streak[data-tier="13"]::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: radial-gradient(
-    120% 90% at 50% 100%,
-    rgb(255 112 68 / 26%) 0%,
-    rgb(214 62 26 / 12%) 45%,
-    transparent 72%
-  );
-  animation: streak-flare 850ms ease-out;
+/* Inner: the burning ink. Inherits every metric from the word above it. */
+.streak-ink {
+  display: inline-block;
 }
 
 /*
@@ -1431,23 +1404,283 @@ input:focus-visible {
     opacity: 0;
     transform: scale(2.1);
   }
+
   60% {
     opacity: 1;
     transform: scale(0.94);
   }
+
   to {
     opacity: 1;
     transform: scale(1);
   }
 }
 
+/* --- the flame sheet ----------------------------------------------------- */
+
+/*
+ * Three offset radial tongues behind the word, rising and guttering. One
+ * element and one compositor property, which is how actual moving fire stays
+ * off the frame budget. Absent at the bottom rung: an ember glow should not
+ * arrive with a bonfire behind it.
+ */
+.streak-flames {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  width: min(22rem, 92%);
+  height: 9rem;
+  translate: -50% 45%;
+  opacity: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 58% at 30% 100%, rgb(255 186 74 / 62%) 0%, transparent 70%),
+    radial-gradient(38% 72% at 52% 100%, rgb(255 126 44 / 70%) 0%, transparent 72%),
+    radial-gradient(44% 54% at 72% 100%, rgb(214 62 26 / 58%) 0%, transparent 70%);
+  filter: blur(6px);
+}
+
+.streak[data-tier="7"] .streak-flames,
+.streak[data-tier="10"] .streak-flames,
+.streak[data-tier="13"] .streak-flames,
+.streak[data-tier="16"] .streak-flames {
+  animation: streak-lick 620ms ease-out infinite alternate;
+}
+
+/*
+ * Fire moves by rising and guttering, not by sliding. Scaling the sheet from
+ * its base does both at once and stays on the compositor.
+ */
+@keyframes streak-lick {
+  from {
+    opacity: 0.55;
+    scale: 0.94 0.86;
+  }
+
+  to {
+    opacity: 0.95;
+    scale: 1.06 1.12;
+  }
+}
+
+/* --- the burning ink ----------------------------------------------------- */
+
+/*
+ * The letters are a window onto a gradient two and a half times their own
+ * height, and the GRADIENT is what moves. That is the difference between a word
+ * painted to look like fire and a word with fire running through it — the
+ * complaint that started this was "there's no flaming animation", and a static
+ * clip is exactly that.
+ */
+.streak[data-tier="7"] .streak-ink,
+.streak[data-tier="10"] .streak-ink,
+.streak[data-tier="13"] .streak-ink,
+.streak[data-tier="16"] .streak-ink {
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  background-size: 100% 260%;
+  background-repeat: no-repeat;
+  animation: streak-burn 900ms linear infinite;
+}
+
+@keyframes streak-burn {
+  from {
+    background-position: 50% 100%;
+  }
+
+  to {
+    background-position: 50% 0%;
+  }
+}
+
+/* 4-6. A warm ember behind the word — the quietest rung on the ladder. */
+.streak[data-tier="4"] .streak-ink {
+  color: rgb(255 186 74);
+  text-shadow:
+    0 0 12px rgb(255 126 44 / 55%),
+    0 2px 0 rgb(104 26 12 / 60%);
+}
+
+/* 7-9. Flames licking up the letters. */
+.streak[data-tier="7"] .streak-ink {
+  background-image: linear-gradient(
+    0deg,
+    rgb(214 62 26) 0%,
+    rgb(255 126 44) 34%,
+    rgb(255 186 74) 66%,
+    rgb(255 232 168) 100%
+  );
+  filter: drop-shadow(0 0 14px rgb(255 126 44 / 60%));
+}
+
+/* 10-12. Fully alight, and hotter at the core. */
+.streak[data-tier="10"] .streak-ink {
+  background-image: linear-gradient(
+    0deg,
+    rgb(214 62 26) 0%,
+    rgb(255 126 44) 26%,
+    rgb(255 232 168) 62%,
+    rgb(255 252 240) 100%
+  );
+  filter: drop-shadow(0 0 20px rgb(255 126 44 / 75%));
+  animation-duration: 750ms;
+}
+
+.streak[data-tier="10"] .streak-flames {
+  animation-duration: 500ms;
+  height: 11rem;
+}
+
+/* 13-15. The word burns and takes the vignette with it. */
+.streak[data-tier="13"] .streak-ink {
+  background-image: linear-gradient(
+    0deg,
+    rgb(255 126 44) 0%,
+    rgb(255 232 168) 45%,
+    rgb(255 252 240) 100%
+  );
+  filter: drop-shadow(0 0 26px rgb(255 112 68 / 90%));
+  animation-duration: 600ms;
+}
+
+.streak[data-tier="13"] .streak-flames {
+  animation-duration: 400ms;
+  height: 13rem;
+}
+
+/*
+ * 16+. Insanity — white-hot, and it shakes.
+ *
+ * This rung RE-FIRES on every further box (§12.4), so the slam restarting is
+ * itself part of the effect: the word keeps being hit rather than sitting there.
+ * The shake animates `translate` while the slam animates `transform` on the
+ * parent — separate properties on separate elements, so they compose instead of
+ * overwriting each other.
+ */
+.streak[data-tier="16"] .streak-ink {
+  background-image: linear-gradient(
+    0deg,
+    rgb(255 186 74) 0%,
+    rgb(255 252 240) 38%,
+    #fff 70%,
+    rgb(255 252 240) 100%
+  );
+  filter: drop-shadow(0 0 34px rgb(255 150 90 / 100%));
+  animation:
+    streak-burn 420ms linear infinite,
+    streak-shake 90ms steps(2, end) infinite;
+}
+
+.streak[data-tier="16"] .streak-flames {
+  animation-duration: 300ms;
+  height: 15rem;
+  filter: blur(4px);
+}
+
+@keyframes streak-shake {
+  0% {
+    translate: -1.5px 0.5px;
+  }
+
+  50% {
+    translate: 1.5px -0.5px;
+  }
+
+  100% {
+    translate: -1.5px 0.5px;
+  }
+}
+
+/* --- embers -------------------------------------------------------------- */
+
+/*
+ * One keyframe; the scatter comes from per-ember custom properties set in
+ * streak.ts. Without them twenty sparks rise in one rank, in step, which reads
+ * as a machine rather than a fire.
+ */
+.streak-embers {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  width: min(20rem, 88%);
+  height: 1px;
+  translate: -50% 0;
+  pointer-events: none;
+}
+
+.ember {
+  position: absolute;
+  left: var(--x);
+  bottom: 0;
+  width: var(--size);
+  height: var(--size);
+  border-radius: 50%;
+  background: rgb(255 196 96);
+  box-shadow: 0 0 6px rgb(255 126 44 / 90%);
+  opacity: 0;
+  animation: ember-rise var(--dur) ease-out var(--delay) forwards;
+}
+
+@keyframes ember-rise {
+  from {
+    opacity: 0;
+    translate: 0 0;
+    scale: 0.6;
+  }
+
+  25% {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+    translate: var(--drift) -7rem;
+    scale: 0.2;
+  }
+}
+
+/* --- the vignette flare, WILDFIRE and up --------------------------------- */
+
+.streak[data-tier="13"]::before,
+.streak[data-tier="16"]::before {
+  content: "";
+  position: absolute;
+  /*
+   * Deliberately bled well outside the host. The scoreboard is a short row and
+   * this has to read as the whole top of the screen catching, which an inset:0
+   * flare inside a 6rem box cannot do.
+   */
+  inset: -100% -20%;
+  z-index: -1;
+  background: radial-gradient(
+    60% 50% at 50% 50%,
+    rgb(255 112 68 / 26%) 0%,
+    rgb(214 62 26 / 12%) 45%,
+    transparent 72%
+  );
+  animation: streak-flare 850ms ease-out;
+}
+
+.streak[data-tier="16"]::before {
+  background: radial-gradient(
+    70% 60% at 50% 50%,
+    rgb(255 160 96 / 40%) 0%,
+    rgb(255 86 32 / 20%) 42%,
+    transparent 74%
+  );
+  animation: streak-flare 620ms ease-out;
+}
+
 @keyframes streak-flare {
   from {
     opacity: 0;
   }
+
   40% {
     opacity: 1;
   }
+
   to {
     opacity: 0.55;
   }
@@ -1456,13 +1689,22 @@ input:focus-visible {
 /*
  * Reduced motion: keep the state change, drop the sequence (§10.4's rule). The
  * word still arrives and still burns — it just does not travel to get there.
+ * streak.ts builds no embers at all in this mode, so there is nothing to stop.
  */
 .streak.still .streak-word,
-.streak.still .streak-word.slam {
+.streak.still .streak-word.slam,
+.streak.still .streak-ink,
+.streak.still .streak-flames {
   animation: none;
 }
 
-.streak.still[data-tier="13"]::before {
+.streak.still .streak-flames {
+  opacity: 0.8;
+}
+
+.streak.still[data-tier="13"]::before,
+.streak.still[data-tier="16"]::before {
   animation: none;
   opacity: 0.55;
 }
+

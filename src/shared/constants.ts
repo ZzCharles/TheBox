@@ -176,9 +176,27 @@ export const STREAK_TIERS = [
   { at: 7, word: "Blazing" },
   { at: 10, word: "Ruthless" },
   { at: 13, word: "WILDFIRE" },
+  { at: 16, word: "Insanity" },
 ] as const;
 
 export type StreakTier = (typeof STREAK_TIERS)[number];
+
+/**
+ * The top of the ladder, and the only rung that behaves differently.
+ *
+ * Every other tier fires ONCE, on the way up: a haul crossing 7 says `Blazing`
+ * and then says nothing more until it reaches 10. `Insanity` instead re-fires on
+ * **every further box** (owner's call, 2026-08-12) — past sixteen there is no
+ * higher word to climb to, so repetition is the only escalation left, and a turn
+ * that just keeps going should keep being celebrated rather than going quiet at
+ * exactly its most absurd.
+ */
+export const STREAK_TOP_TIER = STREAK_TIERS[STREAK_TIERS.length - 1]!;
+
+/** Does this haul sit at the rung that re-fires per box? */
+export function isTopStreakTier(tier: StreakTier): boolean {
+  return tier.at === STREAK_TOP_TIER.at;
+}
 
 /** The tier a haul earns, or null when it is not worth saying anything. */
 export function streakTier(boxes: number): StreakTier | null {

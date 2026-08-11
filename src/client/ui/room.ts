@@ -24,7 +24,6 @@ import {
   currentPlayer,
   isShrinkWarning,
   ringBoxes,
-  roundsUntilCollapse,
   wildcardCostPreview,
   skipTurn,
   turnSecondsFor,
@@ -39,7 +38,6 @@ import {
   presetAllowed,
   MAX_WILDCARD_CHARGES,
   MIN_PLAYERS,
-  SHRINK_INTERVAL_ROTATIONS,
   WILDCARD_COST,
 } from "../../shared/constants.ts";
 import { play } from "../audio/engine.ts";
@@ -64,6 +62,11 @@ import { createShatter, SHATTER } from "../render/shatter.ts";
 import { createStage, type Stage } from "../render/stage.ts";
 import { createScoreboard, type Scoreboard } from "./scoreboard.ts";
 import { createStreak } from "./streak.ts";
+import {
+  BURN_WARNING_HTML,
+  createTwistHud,
+  SHOP_HTML,
+} from "./twistHud.ts";
 import { wordmark } from "./wordmark.ts";
 
 const CLOCK_TICK_MS = 50;
@@ -76,12 +79,6 @@ const CLOCK_TICK_MS = 50;
  * wrong, and short enough that it resolves inside a 12s turn.
  */
 const PENDING_TIMEOUT_MS = 2500;
-
-/** 2πr for the r=19 collapse dial in the burn badge. */
-const BURN_RING_CIRCUMFERENCE = 2 * Math.PI * 19;
-
-/** How long the "you can afford a Wildcard" nudge stays up. */
-const NUDGE_MS = 5000;
 
 type ViewKind = "connecting" | "lobby" | "game";
 
@@ -597,48 +594,16 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         <div id="scoreboard"></div>
         <div class="board-wrap">
           <div class="board" id="board"></div>
-          ${
-            twist
-              ? `<!--
-                   The collapse warning lives OVER the board, absolutely
-                   positioned, because that is where the eyes already are — and
-                   because a row here would resize the canvas every time it
-                   appeared, which is the jitter §10.0 exists to prevent.
-                   The ring drains as the collapse approaches.
-                 -->
-                 <div class="burn-warning" id="burn-warning" hidden aria-live="polite">
-                   <svg viewBox="0 0 44 44" aria-hidden="true">
-                     <circle class="bw-track" cx="22" cy="22" r="19" />
-                     <circle class="bw-ring" cx="22" cy="22" r="19"
-                             stroke-dasharray="119.4" stroke-dashoffset="0" />
-                   </svg>
-                   <span class="bw-flame" aria-hidden="true">🔥</span>
-                   <span class="bw-count" id="burn-count"></span>
-                 </div>`
-              : ""
-          }
+          <!--
+            The collapse warning lives OVER the board, absolutely positioned,
+            because that is where the eyes already are — and because a row here
+            would resize the canvas every time it appeared, which is the jitter
+            §10.0 exists to prevent. The markup and every behaviour behind it
+            live in twistHud.ts now, shared with hot seat, which had neither.
+          -->
+          ${twist ? BURN_WARNING_HTML : ""}
         </div>
-        ${
-          twist
-            ? `<div class="shop" id="shop">
-                 <!--
-                   The nudge is anchored to the BUY BUTTON, not to the row: the
-                   row holds three items, so a row-centred tail points into the
-                   gap beside the button it is talking about. It floats above
-                   the row rather than sitting in it, because the shop row holds
-                   ONE height for the whole game.
-                 -->
-                 <span class="shop-slot">
-                   <div class="shop-nudge" id="shop-nudge" hidden>
-                     Tap for Wildcard · one extra line
-                   </div>
-                   <button class="chip" id="buy"></button>
-                 </span>
-                 <button class="chip" id="arm"></button>
-                 <span class="shrink-chip" id="shrink"></span>
-               </div>`
-            : ""
-        }
+        ${twist ? SHOP_HTML : ""}
         <div class="turn-banner" id="banner"></div>
         <div class="pill" id="pill"></div>
         <div class="toast" id="toast"></div>
@@ -1034,7 +999,10 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       stage.requestFrame();
     };
 
-    const streak = createStreak(root.querySelector<HTMLElement>(".board-wrap")!);
+    // Over the SCOREBOARD, not the board (§12.4.1, moved 2026-08-12). Mounted
+    // after `createScoreboard`, which empties its host on construction and
+    // would otherwise take the callout with it.
+    const streak = createStreak(root.querySelector<HTMLElement>("#scoreboard")!);
     onStreak = (boxesThisTurn) => streak.climb(boxesThisTurn);
     onStreakEnd = () => streak.end();
 
@@ -1099,140 +1067,23 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       });
     }, CLOCK_TICK_MS);
 
-    const shrinkChip = root.querySelector<HTMLElement>("#shrink");
-    const burnWarning = root.querySelector<HTMLElement>("#burn-warning");
-    const burnCount = root.querySelector<HTMLElement>("#burn-count");
-    const burnRing = root.querySelector<SVGCircleElement>(".bw-ring");
-
-    /**
-     * Visible countdown, so a collapse is something you plan for, not a
-     * surprise. Two forms on purpose, because they are read at different
-     * moments:
-     *
-     * - the flame badge sits ON the board, where the eyes already are, and is
-     *   readable at a glance mid-turn — a drained ring means "this round";
-     * - the chip spells it out in words for anyone who looks down at the row.
-     *
-     * The badge exists because the chip alone was missed entirely in the
-     * 2026-08-03 playtest: 0.7rem of dim text in a row nobody was looking at.
-     */
-    function updateShrinkChip() {
-      if (!state) return;
-      const rounds = roundsUntilCollapse(state);
-
-      if (shrinkChip) {
-        if (rounds === null) {
-          shrinkChip.textContent = "";
-          shrinkChip.className = "shrink-chip";
-        } else {
-          shrinkChip.textContent =
-            rounds <= 1 ? "Board shrinks NEXT round" : `Board shrinks in ${rounds}`;
-          shrinkChip.className = `shrink-chip visible${rounds <= 1 ? " imminent" : ""}`;
-        }
-      }
-
-      if (!burnWarning || !burnCount || !burnRing) return;
-      if (rounds === null) {
-        burnWarning.hidden = true;
-        return;
-      }
-      burnWarning.hidden = false;
-      // "1" reads as a countdown; the badge going red is what says "now".
-      burnCount.textContent = rounds <= 0 ? "!" : String(rounds);
-      burnWarning.classList.toggle("imminent", rounds <= 1);
-      burnWarning.title =
-        rounds <= 1 ? "The outer ring burns next round" : `The outer ring burns in ${rounds}`;
-      // Drains as it closes in: full at two rounds out, empty when it is due.
-      const fraction = Math.max(0, Math.min(1, rounds / SHRINK_INTERVAL_ROTATIONS));
-      burnRing.style.strokeDashoffset = String(BURN_RING_CIRCUMFERENCE * (1 - fraction));
-    }
-
-    const buyBtn = root.querySelector<HTMLButtonElement>("#buy");
-    const armBtn = root.querySelector<HTMLButtonElement>("#arm");
-    const nudge = root.querySelector<HTMLElement>("#shop-nudge");
-    buyBtn?.addEventListener("click", () => {
-      dismissNudge();
-      net.send({ t: "buy" });
-    });
-    armBtn?.addEventListener("click", () => net.send({ t: "arm" }));
-
     /*
-     * The Wildcard went completely unnoticed in the 2026-08-03 playtest — a
-     * chip reading "Wildcard · 10" that is disabled and dim for the first ten
-     * minutes of a game teaches nobody it exists.
-     *
-     * So the first time you can actually afford one, say so. Once per game,
-     * five seconds, and never again: a prompt that keeps returning stops being
-     * information and becomes nagging.
-     *
-     * Deliberately NOT a buy button. It appears unprompted right where a thumb
-     * already is, and spending ten hard-won squares on a mis-tap is exactly the
-     * kind of thing that would make someone put the game down. It points; the
-     * real button, which you have to aim at, still does the spending.
+     * The Twist HUD: the flame badge on the board and the shop row below it.
+     * Both used to be written out here; hot seat had neither, which is exactly
+     * how single-player Twist ended up with no fire warning and no Wildcard.
+     * One implementation now, in twistHud.ts, mounted by both screens.
      */
-    let nudgeState: "unseen" | "showing" | "done" = "unseen";
-    let nudgeTimer = 0;
-
-    function dismissNudge() {
-      if (nudge) nudge.hidden = true;
-      buyBtn?.classList.remove("nudged");
-      window.clearTimeout(nudgeTimer);
-      if (nudgeState === "showing") nudgeState = "done";
-    }
-
-    function maybeNudge(affordable: boolean) {
-      if (!nudge || nudgeState !== "unseen") return;
-      if (!affordable) return;
-      nudgeState = "showing";
-      nudge.hidden = false;
-      buyBtn?.classList.add("nudged");
-      nudgeTimer = window.setTimeout(dismissNudge, NUDGE_MS);
-    }
-
-    nudge?.addEventListener("click", dismissNudge);
-
-    /**
-     * In twist mode the powerup row is present from the first frame and simply
-     * greys out when unusable. It never leaves the layout — see the layout rule
-     * above.
-     */
-    function updateShop() {
-      if (!buyBtn || !armBtn || !state) return;
-
-      const score = state.scores[myIndex] ?? 0;
-      const charges = state.charges[myIndex] ?? 0;
-      const myTurn =
-        !spectating && currentPlayer(state) === myIndex && state.phase === "playing";
-
-      buyBtn.textContent = `Wildcard · ${WILDCARD_COST}`;
-      buyBtn.disabled =
-        !myTurn || score < WILDCARD_COST || charges >= MAX_WILDCARD_CHARGES;
-
-      // Only once it is genuinely payable — pointing at a button that does
-      // nothing when tapped is worse than saying nothing at all.
-      maybeNudge(!buyBtn.disabled);
-      if (charges > 0) dismissNudge();
-      buyBtn.title = spectating
-        ? "You are watching this game"
-        : score < WILDCARD_COST
-          ? `Costs ${WILDCARD_COST} boxes — you have ${score}`
-          : `Burns ${WILDCARD_COST} of your boxes for one extra line`;
-
-      armBtn.textContent = state.armed
-        ? "Armed"
-        : `Extra line${charges > 0 ? ` ×${charges}` : ""}`;
-      armBtn.disabled = !myTurn || charges === 0 || state.armed;
-      armBtn.classList.toggle("selected", state.armed);
-    }
-
+    const twistHud = createTwistHud(root, {
+      onBuy: () => net.send({ t: "buy" }),
+      onArm: () => net.send({ t: "arm" }),
+    });
     const nowPlaying = root.querySelector<HTMLElement>("#now-playing")!;
 
     updateView = () => {
       if (!room || !state) return;
       syncBoardView();
       stage.requestFrame();
-      updateShop();
-      updateShrinkChip();
+      twistHud.update({ state, playerIndex: myIndex, spectating });
 
       const active = room.players[currentPlayer(state)];
       nowPlaying.textContent =
@@ -1384,7 +1235,7 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       startSeq?.cancel();
       window.clearInterval(clock);
       window.clearTimeout(pendingTimer);
-      window.clearTimeout(nudgeTimer);
+      twistHud.dispose();
       detach();
       stage.destroy();
       scoreboard.destroy();

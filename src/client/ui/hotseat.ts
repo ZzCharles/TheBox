@@ -22,7 +22,9 @@ import {
 } from "../../shared/constants.ts";
 import {
   applyMove,
+  armWildcard,
   autoMoveLine,
+  buyWildcard,
   canPlace,
   createGame,
   currentPlayer,
@@ -47,6 +49,11 @@ import { CONFIRM_TAP_FROM_GRID } from "../render/layout.ts";
 import { createStage, type Stage } from "../render/stage.ts";
 import { createScoreboard, type Scoreboard } from "./scoreboard.ts";
 import { createStreak } from "./streak.ts";
+import {
+  BURN_WARNING_HTML,
+  createTwistHud,
+  SHOP_HTML,
+} from "./twistHud.ts";
 import { wordmark } from "./wordmark.ts";
 
 const INITIALS = "ABCDEFGH";
@@ -198,10 +205,20 @@ function startGame(
 
   let state = createGame({ n, mode, playerCount });
 
+  const twist = mode === "twist";
+
+  // LAYOUT RULE (§10.0): every row outside .board-wrap keeps a constant height
+  // for the whole game. The shop row is decided HERE, once, and then greys out
+  // rather than appearing and disappearing — a row that toggles moves the board
+  // on every move. The flame badge holds no row at all.
   root.innerHTML = `
     <div class="game">
       <div id="scoreboard"></div>
-      <div class="board-wrap"><div class="board" id="board"></div></div>
+      <div class="board-wrap">
+        <div class="board" id="board"></div>
+        ${twist ? BURN_WARNING_HTML : ""}
+      </div>
+      ${twist ? SHOP_HTML : ""}
       <div class="pill" id="pill"></div>
       <div class="toast" id="toast"></div>
       <div class="overlay" id="overlay" hidden></div>
@@ -212,8 +229,6 @@ function startGame(
   const pill = root.querySelector<HTMLElement>("#pill")!;
   const toastEl = root.querySelector<HTMLElement>("#toast")!;
   const overlay = root.querySelector<HTMLElement>("#overlay")!;
-  const streak = createStreak(root.querySelector<HTMLElement>(".board-wrap")!);
-
   /** Whose run of continuation moves is being counted, and how big it is. */
   let streakPlayer = -1;
   let streakHaul = 0;
@@ -222,6 +237,56 @@ function startGame(
     root.querySelector<HTMLElement>("#scoreboard")!,
     players,
   );
+
+  // Over the SCOREBOARD, not the board (§12.4.1, moved 2026-08-12). ORDER
+  // MATTERS: `createScoreboard` empties its host, so a callout mounted before it
+  // is deleted on the spot — silently, since nothing else references the node.
+  const streak = createStreak(root.querySelector<HTMLElement>("#scoreboard")!);
+
+  /*
+   * The Twist HUD — the flame badge and the shop row — shared with the online
+   * game (§10.5). Hot seat had NEITHER until 2026-08-12, so single-player Twist
+   * ran with no collapse warning and no way to buy a Wildcard at all: the
+   * mechanics were in the rules engine and nowhere on the screen.
+   *
+   * On one device the shop always belongs to whoever's turn it is, which is why
+   * `playerIndex` is read per update rather than fixed at mount.
+   */
+  const twistHud = createTwistHud(root, {
+    onBuy() {
+      const player = currentPlayer(state);
+      const bought = buyWildcard(state, player);
+      if (!bought.ok) {
+        toast(bought.reason.replace(/-/g, " "));
+        return;
+      }
+      // One mechanic, one sound (§13): buying makes a noise, arming does not —
+      // the button going bright already says that.
+      play("thunk");
+      toast(`Wildcard bought · ${WILDCARD_COST} boxes burned`);
+      refreshTwist();
+      stage.requestFrame();
+    },
+    onArm() {
+      const armed = armWildcard(state, currentPlayer(state));
+      if (!armed.ok) {
+        toast(armed.reason.replace(/-/g, " "));
+        return;
+      }
+      toast("Armed — your next line is free");
+      refreshTwist();
+      stage.requestFrame();
+    },
+  });
+
+  function refreshTwist() {
+    twistHud.update({
+      state,
+      playerIndex: currentPlayer(state),
+      // Nobody spectates their own kitchen table.
+      spectating: false,
+    });
+  }
 
   const renderer = createBoardRenderer(
     boardHost.clientWidth || 320,
@@ -314,7 +379,13 @@ function startGame(
       // notice that waiting was cheaper than opening a chain. `skipTurn` is the
       // fallback for a board with no legal move left.
       const line = autoMoveLine(state);
-      let out: { benched: boolean; shrink: ShrinkOutcome | null } | null = null;
+      // `gameOver` is what stops this branch stranding a finished game. The
+      // clock can place the last line of the match, and until 2026-08-12 this
+      // path never checked — so the state went to "over", the interval below
+      // early-returned forever, `finish()` was never reached and the player sat
+      // looking at a complete board with no result and no input. Both outcomes
+      // carry the flag; neither may be dropped.
+      let out: { benched: boolean; shrink: ShrinkOutcome | null; gameOver: boolean } | null = null;
 
       if (line === null) {
         const skipped = skipTurn(state, currentPlayer(state));
@@ -347,6 +418,14 @@ function startGame(
           stage.requestFrame();
         }
         beginTurn();
+        refreshTwist();
+        // The clock is as capable of ending the match as a tap is, so it needs
+        // the same exit. `finish()` clears this interval, so nothing below runs
+        // again afterwards.
+        if (out.gameOver) {
+          finish();
+          return;
+        }
       }
     }
 
@@ -420,6 +499,9 @@ function startGame(
 
       beginTurn();
       refreshScoreboard(now);
+      // Whose turn it is, what they can afford and how close the ring is to
+      // burning all changed on that move.
+      refreshTwist();
 
       if (result.value.gameOver) finish();
     },
@@ -475,11 +557,15 @@ function startGame(
     stage.destroy();
     scoreboard.destroy();
     streak.dispose();
+    twistHud.dispose();
   }
 
   setActive(teardown);
   beginTurn();
   refreshScoreboard(performance.now());
+  // The shop row must be correct on the FIRST frame, not on the first move:
+  // players need to see a power exists before they can afford it (§10.0).
+  refreshTwist();
   stage.requestFrame();
 }
 
