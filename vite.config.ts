@@ -42,7 +42,7 @@ export default defineConfig({
        * real deploy, not against dev.
        */
       devOptions: { enabled: false },
-      includeAssets: ["fonts/Archivo.woff2", "icons/*.png"],
+      includeAssets: ["fonts/Archivo.woff2", "icons/*.png", "sfx/voice/*.mp3"],
       manifest: {
         name: "Tiki",
         short_name: "Tiki",
@@ -68,7 +68,17 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,woff2,png,svg,ico}"],
+        /*
+         * `mp3` is here for the announcer (§13.2). Precaching the voice lines
+         * matters more than it looks: "Here we go" fires the instant a game
+         * starts, and a first-use network fetch would land it somewhere in the
+         * middle of the opening move instead of on the beat.
+         *
+         * ⚠️ Watch the total. Precache is downloaded in full on first visit,
+         * and a set of announcer lines is the only thing in this project big
+         * enough to make that a real number — §13.2 has the budget.
+         */
+        globPatterns: ["**/*.{js,css,html,woff2,png,svg,ico,mp3}"],
         /*
          * ⚠️ **Never let the service worker answer for the API or the socket.**
          *

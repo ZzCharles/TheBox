@@ -41,6 +41,7 @@ import {
   WILDCARD_COST,
 } from "../../shared/constants.ts";
 import { play } from "../audio/engine.ts";
+import { resetVoiceState, say } from "../audio/voice.ts";
 import { exposeDebug } from "../devtools.ts";
 import { attachPointer } from "../input/pointer.ts";
 import { clientId, motionReduced, ownerKey, prefs, storedName } from "../net/identity.ts";
@@ -249,6 +250,10 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         ? `${who} ran out of time — parked, and a line was placed for ${them}`
         : `${who} ran out of time — a line was placed for ${them}`,
     );
+    // "You there?" — only to the player it is about, and only on the miss that
+    // actually parks them (§6.4's second consecutive miss). Saying it to the
+    // table would be noise about someone else's phone.
+    if (benched && mine) say("parked");
   }
 
   /**
@@ -822,6 +827,15 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       // No pitch scatter: this one is musical, and a detuned fanfare is a sour
       // fanfare.
       play("fanfare", { jitter: 0 });
+      /*
+       * The announcer lands ON the crown, not on the result overlay — §12.3
+       * step 6 is the celebration, and the overlay that follows is admin.
+       *
+       * ⚠️ A shared victory is a real outcome (§9.1), and "here's your winner"
+       * is simply wrong for one. It gets its own line, and until that line is
+       * recorded a draw is announced by the fanfare alone.
+       */
+      say(state && state.winners.length > 1 ? "draw" : "winner");
     }
 
     function beginShatter() {
@@ -1048,6 +1062,11 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         // Absent on iOS Safari; the pill and amber ring carry it there.
         navigator.vibrate?.(40);
         play("blip");
+        // "Tick-tick." Rationed by a cooldown inside `say` — this fires on
+        // EVERY slow turn, and the same two syllables a hundred times a game
+        // would be wallpaper rather than a warning. The buzz, ring and pill
+        // still fire every time.
+        say("hurry");
         showPill(`${Math.ceil(left)}s`);
       }
 
@@ -1217,6 +1236,9 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
       gameEl.classList.add("entering");
       // Armed for the future: the board stays empty until the mark has landed.
       renderer.startEntrance(performance.now() + BOARD_START_OFFSET_MS);
+      // A fresh match: the `hurry` cooldown must not carry over from the last
+      // one, or the first warning of this game gets eaten by the previous.
+      resetVoiceState();
       startSeq = playStartSequence({
         stage: gameEl,
         boardMs: entranceDurationMs(n + 1),
@@ -1224,6 +1246,10 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
           startSeq = null;
           gameEl.classList.remove("entering");
           stage.requestFrame();
+          // "Here we go" lands as the board finishes rolling in, not on the
+          // tap: the sequence already has its own beat at 270ms (`thunk` on
+          // impact, §12.1) and a voice on top of that is two things at once.
+          say("start");
         },
       });
       stage.requestFrame();

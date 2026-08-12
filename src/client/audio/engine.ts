@@ -37,7 +37,13 @@ const MAX_VOICES = 4;
 const PITCH_JITTER = 0.05;
 
 let ctx: AudioContext | null = null;
-let master: GainNode | null = null;
+/**
+ * Two buses into one master gain, so a spoken line can duck the effects (§13.2)
+ * without touching itself. Nothing holds the master node in a variable — the
+ * graph does, and an unread reference is just something to keep in step.
+ */
+let sfxBus: GainNode | null = null;
+let voiceBus: GainNode | null = null;
 let enabled = true;
 const buffers = new Map<SfxName, AudioBuffer>();
 const voices: AudioBufferSourceNode[] = [];
@@ -70,6 +76,16 @@ function unlock(): void {
     gain.gain.value = MASTER_GAIN;
     gain.connect(context.destination);
 
+    // Two buses into one master. Effects can be pulled down under a voice line
+    // without touching the voice, which is the only way "Here's your winner"
+    // survives 144 endgame clacks arriving underneath it (§12.3 step 4).
+    const sfx = context.createGain();
+    sfx.gain.value = 1;
+    sfx.connect(gain);
+    const voice = context.createGain();
+    voice.gain.value = 1;
+    voice.connect(gain);
+
     // Rendered at the context's own rate, so playback never resamples. Seven
     // sounds totalling under two seconds of audio — a couple of milliseconds
     // of maths, once, inside a gesture we are already handling.
@@ -81,13 +97,15 @@ function unlock(): void {
     }
 
     ctx = context;
-    master = gain;
+    sfxBus = sfx;
+    voiceBus = voice;
     void context.resume();
   } catch {
     // Blocked, unsupported, or out of contexts. The game is now silent, which
     // is the correct outcome and not worth a console full of noise.
     ctx = null;
-    master = null;
+    sfxBus = null;
+    voiceBus = null;
     buffers.clear();
   }
 }
@@ -102,7 +120,7 @@ export interface PlayOptions {
 }
 
 export function play(name: SfxName, options: PlayOptions = {}): void {
-  if (!enabled || !ctx || !master) return;
+  if (!enabled || !ctx || !sfxBus) return;
   const buffer = buffers.get(name);
   if (!buffer) return;
 
@@ -128,7 +146,7 @@ export function play(name: SfxName, options: PlayOptions = {}): void {
 
     const gain = ctx.createGain();
     gain.gain.value = options.gain ?? 1;
-    source.connect(gain).connect(master);
+    source.connect(gain).connect(sfxBus);
 
     source.onended = () => {
       const at = voices.indexOf(source);
@@ -163,4 +181,50 @@ export function soundReady(): boolean {
  */
 export function soundEnabled(): boolean {
   return enabled;
+}
+
+// ------------------------------------------------------------------ voice ---
+
+/**
+ * The shared context, so `voice.ts` decodes its files at the sample rate
+ * everything else already runs at and plays through the same output stage.
+ *
+ * ⚠️ **Voice deliberately does NOT go through `play()`.** The four-voice cap
+ * with oldest-evicted (rule 3) is right for a chain of ticks and wrong for
+ * speech: a line cut off halfway through by the next `clack` is worse than no
+ * line at all.
+ */
+export function audioContext(): AudioContext | null {
+  return ctx;
+}
+
+/** Where spoken lines connect. Null until the first gesture unlocks audio. */
+export function voiceDestination(): GainNode | null {
+  return voiceBus;
+}
+
+/** How far the effects bus drops under a voice line, and how fast it moves. */
+const DUCK_TO = 0.32;
+const DUCK_RAMP_SECONDS = 0.08;
+
+/**
+ * Pull the effects down for `seconds`, then bring them back.
+ *
+ * Ramped rather than stepped: a hard gain change on a bus that is already
+ * making noise is an audible click, which is the exact artefact §13's
+ * zero-endpoint test exists to avoid inside a single sound.
+ */
+export function duckSfx(seconds: number): void {
+  if (!ctx || !sfxBus) return;
+  try {
+    const now = ctx.currentTime;
+    const gain = sfxBus.gain;
+    gain.cancelScheduledValues(now);
+    gain.setValueAtTime(gain.value, now);
+    gain.linearRampToValueAtTime(DUCK_TO, now + DUCK_RAMP_SECONDS);
+    gain.setValueAtTime(DUCK_TO, now + Math.max(seconds, DUCK_RAMP_SECONDS));
+    gain.linearRampToValueAtTime(1, now + Math.max(seconds, DUCK_RAMP_SECONDS) + 0.18);
+  } catch {
+    /* see rule 2 */
+  }
 }

@@ -194,10 +194,10 @@ export function createStreak(host: HTMLElement): Streak {
       void word.offsetWidth;
       word.classList.add("slam");
 
-      // Decoration on decoration: `say` is a no-op when muted, when the API is
-      // missing, or when the platform simply refuses. It never throws and it
-      // never queues, so a re-firing Insanity cuts its own previous line off
-      // rather than talking into the next player's turn.
+      // Decoration on decoration: `say` is a no-op when muted or when the
+      // recording is missing. It never throws and it never queues, so a
+      // re-firing Insanity cuts its own previous line off rather than talking
+      // into the next player's turn.
       say(tier.word);
 
       hideTimer = window.setTimeout(() => {

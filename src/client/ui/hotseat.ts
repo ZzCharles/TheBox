@@ -38,6 +38,7 @@ import {
   type ShrinkOutcome,
 } from "../../shared/rules.ts";
 import { play } from "../audio/engine.ts";
+import { resetVoiceState, say, silence } from "../audio/voice.ts";
 import { exposeDebug } from "../devtools.ts";
 import { attachPointer } from "../input/pointer.ts";
 import {
@@ -371,6 +372,10 @@ function startGame(
       // amber ring have to carry the warning on their own.
       navigator.vibrate?.(40);
       play("blip");
+      // Rationed by a cooldown inside `say` — see the note there. On one device
+      // this fires for whoever is in the seat, which is the right behaviour:
+      // there is only one phone and only one person on the clock.
+      say("hurry");
       showPill(`${WARN_AT_SECONDS_REMAINING}s`);
     }
 
@@ -403,6 +408,8 @@ function startGame(
               ? "Time — parked, and a line was placed"
               : "Time — a line was placed",
           );
+          // "You there?" — the second consecutive miss, the one that parks you.
+          if (played.value.benched) say("parked");
           play("tick");
           renderer.animateLine(line, now);
           for (const box of played.value.claimed) renderer.animateBox(box, now);
@@ -530,6 +537,9 @@ function startGame(
     window.clearInterval(clock);
     // Musical, so no pitch scatter.
     play("fanfare", { jitter: 0 });
+    // A shared victory is a real outcome (§9.1), and "here's your winner" is
+    // wrong for one — so it gets its own line.
+    say(state.winners.length > 1 ? "draw" : "winner");
     const names = state.winners.map((w) => players[w]!.name).join(" & ");
     const top = state.scores[state.winners[0] ?? 0] ?? 0;
 
@@ -564,10 +574,18 @@ function startGame(
     scoreboard.destroy();
     streak.dispose();
     twistHud.dispose();
+    // A line started on the last box outlives this screen otherwise, and keeps
+    // talking over the setup screen behind it.
+    silence();
   }
 
   setActive(teardown);
   beginTurn();
+  // A fresh match, so the `hurry` cooldown starts clean. Hot seat runs no start
+  // sequence (§12.1 is the online ceremony), so "Here we go" lands on the Play
+  // tap itself — which is also the gesture that unlocks audio.
+  resetVoiceState();
+  say("start");
   refreshScoreboard(performance.now());
   // The shop row must be correct on the FIRST frame, not on the first move:
   // players need to see a power exists before they can afford it (§10.0).

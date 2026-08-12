@@ -250,7 +250,8 @@ All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twis
 | Board rendering + input | ✅ Done, design values applied, 0.7 ms/frame |
 | Twist mode | ✅ Done, with the shrink floor |
 | Screens: landing, settings, lobby, game | ✅ Done — full colour, type and behaviour pass |
-| **Sound** | 🟡 Eight synthesised sounds, 42 tests. `tick` and `click` were recut at M7.5 and **reverted 2026-08-12** — back to a pair a playtest also called not good enough (§13.1). |
+| **Sound** | 🟡 Eight synthesised sounds, 42 tests. `tick` and `click` were recut at M7.5 and **reverted 2026-08-12** — back to a pair a playtest also called not good enough (§13.1). **Still the weakest part of the game.** |
+| **Announcer** | 🟡 Nine recorded lines wired and verified (§13.2). Waiting on the files themselves, plus a draw line and extra `Insanity` takes. |
 | **Streak callouts** | ✅ Five tiers over the scoreboard, animated fire, embers, and a placeholder voice (§12.4.1) |
 | **Twist burn** | ✅ Done — fuse, ignition, spreading front, flame, ash. 2.6 ms worst frame. |
 | **Start sequence** | ✅ Mark draws, flares, hits, shakes; board rolls in |
@@ -570,6 +571,7 @@ Box/
 │  └─ make-icons.mjs           ← `npm run icons`. Generates the PNGs. No deps (§14.1)
 ├─ public/
 │  ├─ icons/                   ← GENERATED — edit the script, not these
+│  ├─ sfx/voice/               ← the announcer's mp3s. README there names every one
 │  └─ fonts/                   ← Archivo, self-hosted
 └─ src/
    ├─ shared/                  ← imported by BOTH client and server. No DOM, no Workers APIs.
@@ -609,8 +611,8 @@ Box/
       │  └─ installOffer.ts    ← add-to-home-screen, on the result overlay (§14.3)
       ├─ audio/
       │  ├─ waveforms.ts       ← PURE. the eight sounds, synthesised. tested.
-      │  ├─ voice.ts           ← spoken streak lines: synth now, samples later
-      │  └─ engine.ts          ← unlock on first gesture, voices, ducking, mute
+      │  ├─ voice.ts           ← the announcer: nine recorded lines (§13.2)
+      │  └─ engine.ts          ← unlock on first gesture, sfx/voice buses, ducking, mute
       └─ styles/
 ```
 
@@ -1894,6 +1896,69 @@ neighbouring 1ms windows, which cancels the overall decay and leaves only the to
 renders: **0.435** shipped, **0.224** the rejected 110Hz version, **0.117** plain filtered
 noise. The threshold sits above the rejected one deliberately — a test set at 0.16 would
 have passed the sound that failed, which is the entire point of writing it.
+
+---
+
+### 13.2 The announcer — recorded, 2026-08-13
+
+Nine spoken lines, produced by the owner in ElevenLabs. `src/client/audio/voice.ts`.
+Files live in `public/sfx/voice/` and **the filenames are the contract** — there is a
+`README.md` in that folder listing every one, and dropping a file in is the whole
+integration step.
+
+| Key | File | Fires |
+|---|---|---|
+| `Nice` … `Insanity` | `nice/blazing/ruthless/wildfire/insanity.mp3` | The five streak tiers (§12.4) |
+| `start` | `here-we-go.mp3` | The board finishes rolling in |
+| `winner` | `heres-your-winner.mp3` | The crown, inside `playFanfare` |
+| `draw` | *(not recorded)* | A shared victory |
+| `hurry` | `tick-tick.mp3` | 4 seconds left |
+| `parked` | `you-there.mp3` | Your second missed turn |
+
+**Synthesis is gone, not kept as a fallback.** The placeholder used the platform's
+`SpeechSynthesis` and was rejected on hearing it — correctly, it was a screen reader
+shouting. So **a missing recording is silence.** A bad voice is worse than no voice, which
+was the entire verdict; nothing substitutes.
+
+These are the **first sampled audio in the project**, which §13 avoided deliberately. `.mp3`
+is the format because every target decodes it — which removes the iOS codec fallback that
+actually drove the original synthesis decision. The service worker precaches them
+(`globPatterns` includes `mp3`), because "Here we go" fires the instant a game starts and a
+first-use network fetch would land it in the middle of the opening move.
+
+#### Four things that are load-bearing
+
+1. ⚠️ **Voice does NOT go through `play()`.** §13's four-voice cap with oldest-evicted is
+   right for a chain of ticks and wrong for speech — a line cut off halfway by the next
+   `clack` is worse than no line. Voice has its own bus.
+2. ⚠️ **It ducks the effects.** `duckSfx()` pulls the sfx bus to 32% for exactly the length
+   of the line, ramped rather than stepped (a hard gain change on a live bus is an audible
+   click — the same artefact the zero-endpoint test guards inside a single sound). Without
+   this, "Here's your winner" arrives underneath 144 endgame clacks and is simply not heard.
+3. ⚠️ **`hurry` is rationed by a 45s cooldown, and this is not optional.** The 4-second
+   warning fires on EVERY slow turn — roughly a hundred times in a twenty-minute game. The
+   same two syllables a hundred times is wallpaper, which is the failure §10.5 designed the
+   Wildcard nudge around and §10.6 diagnosed in the flame badge. The buzz, amber ring and
+   pill still fire every time; only the voice is rationed. `HURRY_COOLDOWN_MS`, one line.
+4. ⚠️ **`Insanity` repeats, so it needs more than one take.** It re-fires on every box past
+   sixteen (§12.4). `VOICE_FILES` holds an ARRAY per key and rotates, so extra takes are a
+   filename each. With one take, a twenty-box turn is the same recording six times in four
+   seconds.
+
+**A draw is not a win.** §9.1 makes a tie a shared victory, and "here's your winner" is
+wrong for one — so `draw` is its own key. It has no recording yet, and until it does a tie
+gets the fanfare and no voice, which is correct rather than merely tolerable.
+
+**Verified 2026-08-13** in the browser against stubbed files: three `Insanity` calls play
+three times; two `hurry` calls inside the window play once, and a third after
+`resetVoiceState` plays; `draw` is silent rather than falling back to the winner line; muted
+plays nothing and unmuted plays once. The trigger sites were checked separately — starting a
+hot-seat game requests `here-we-go.mp3`, and climbing the ladder requests each tier in order.
+
+⚠️ **Testing note.** `location.href = origin + '#/...'` does **not** reload the page, so
+module state survives and a probe measures the previous run. Two rounds of confusing zeros
+came from exactly that. Use `location.reload()` and assert on a sentinel that proves the
+reload happened.
 
 ---
 
