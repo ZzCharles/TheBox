@@ -255,6 +255,60 @@
   color: var(--text);
 }
 
+/* The offline screen (§14) ------------------------------------------------ */
+
+/*
+ * Deliberately reuses `.setup`, so the screen a player meets with no signal is
+ * recognisably the same app rather than an error page wearing its colours.
+ */
+.offline .hint {
+  max-width: 22rem;
+}
+
+.rules-card {
+  width: 100%;
+  padding: 1rem 1.125rem;
+  border: 1px solid var(--edge);
+  border-radius: 0.875rem;
+  background: var(--panel);
+  text-align: left;
+}
+
+.rules-card h2 {
+  margin-bottom: 0.75rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+/* Numbered, because these are steps in order and the count is the point. */
+ol.rules {
+  margin: 0;
+  padding-left: 1.1rem;
+  list-style: decimal;
+}
+
+ol.rules li::marker {
+  color: var(--dot);
+  font-weight: 700;
+}
+
+/*
+ * The install offer on the result screen (§14). Sits BELOW the rematch button,
+ * quiet enough that it never competes with it — the rematch is what people are
+ * reaching for and this is an aside.
+ */
+.install-offer {
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  margin-top: 1rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--edge);
+}
+
 .swatches {
   display: flex;
   gap: 0.4375rem;

@@ -47,6 +47,7 @@ import {
 } from "../render/boardRenderer.ts";
 import { CONFIRM_TAP_FROM_GRID } from "../render/layout.ts";
 import { createStage, type Stage } from "../render/stage.ts";
+import { appendInstallOffer } from "./installOffer.ts";
 import { createScoreboard, type Scoreboard } from "./scoreboard.ts";
 import { createStreak } from "./streak.ts";
 import {
@@ -545,6 +546,11 @@ function startGame(
       teardown();
       renderSetup(root, setActive);
     });
+
+    // §14: offered after a completed game, never on first load. A no-op when
+    // the browser has not offered an install, or when it is already installed.
+    const result = overlay.querySelector<HTMLElement>(".result");
+    if (result) appendInstallOffer(result);
 
     refreshScoreboard(performance.now());
   }

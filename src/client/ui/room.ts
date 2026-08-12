@@ -60,6 +60,7 @@ import {
 import { CONFIRM_TAP_FROM_GRID } from "../render/layout.ts";
 import { createShatter, SHATTER } from "../render/shatter.ts";
 import { createStage, type Stage } from "../render/stage.ts";
+import { appendInstallOffer } from "./installOffer.ts";
 import { createScoreboard, type Scoreboard } from "./scoreboard.ts";
 import { createStreak } from "./streak.ts";
 import {
@@ -1174,6 +1175,13 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         overlay
           .querySelector<HTMLElement>("#rematch")
           ?.addEventListener("click", () => net.send({ t: "rematch" }));
+
+        // A finished game is the one moment someone knows whether they want
+        // this on their home screen (§14). Appended below the rematch button,
+        // which is what people are actually reaching for, and a no-op when
+        // there is nothing to offer.
+        const result = overlay.querySelector<HTMLElement>(".result");
+        if (result) appendInstallOffer(result);
       }
 
       // Rematch is a vote — everyone still connected has to agree.

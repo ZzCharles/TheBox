@@ -8,6 +8,14 @@ import { mountSettings } from "./ui/settings.ts";
 import { wordmark } from "./ui/wordmark.ts";
 import { applyPrefs } from "./net/identity.ts";
 import { initAudio } from "./audio/engine.ts";
+import {
+  initInstallPrompt,
+  isOffline,
+  registerServiceWorker,
+  routeNeedsNetwork,
+  watchConnectivity,
+} from "./pwa.ts";
+import { mountOffline } from "./ui/offline.ts";
 
 /**
  * Hash routing, so an invite link is just a URL you can paste into a group chat.
@@ -27,6 +35,20 @@ function route() {
   // A throw while mounting used to leave the PREVIOUS screen on display, which
   // looks exactly like the app hanging. Say what happened instead.
   try {
+    /*
+     * Cold start with no network: say so in the app's own voice rather than
+     * letting the landing screen offer a Create button that cannot work (§14).
+     *
+     * ⚠️ This only ever REPLACES a screen at mount. A socket dropping during a
+     * match is a completely different situation and is handled far better by
+     * the game screen itself, which keeps the board up and says "Reconnecting…"
+     * (§7). Never route a live game here.
+     */
+    if (isOffline() && routeNeedsNetwork(location.hash)) {
+      dispose = mountOffline(app);
+      return;
+    }
+
     const match = /^#\/r\/([A-Za-z0-9]{4})$/.exec(location.hash);
     if (match) {
       dispose = mountRoom(app, match[1]!.toUpperCase());
@@ -71,6 +93,18 @@ function escapeHtml(raw: string): string {
 
 window.addEventListener("hashchange", route);
 
+/*
+ * Coming back online re-routes, so the offline screen lets go of its own
+ * accord — you should not have to reload a game to notice the wifi returned.
+ *
+ * Going offline deliberately does NOT re-route: that would yank a live match
+ * off the screen the instant a phone passed a tunnel, which is exactly what
+ * §7's reconnect handling exists to avoid.
+ */
+watchConnectivity(() => {
+  if (!isOffline()) route();
+});
+
 // Preferences that CSS acts on have to be on the document before the first
 // screen paints, or reduce-motion lands one frame late and you see the thing it
 // was meant to suppress.
@@ -80,4 +114,13 @@ applyPrefs();
 // it — the context is built inside the first gesture, whatever that gesture is.
 initAudio();
 
+// Likewise listeners only: Chromium fires `beforeinstallprompt` early and we
+// hold it back until a game has actually finished (§14).
+initInstallPrompt();
+
 route();
+
+// Registered AFTER the first screen is up. A service worker install competes
+// for bandwidth with the very assets the first paint is waiting on, and this
+// game's first screen is the one people judge it by.
+registerServiceWorker();

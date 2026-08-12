@@ -8,7 +8,9 @@
     "moduleResolution": "bundler",
 
     // "node" is here so the *.test.ts files (node:test, node:assert) typecheck.
-    "types": ["vite/client", "node"],
+    // "vite-plugin-pwa/client" declares the `virtual:pwa-register` module that
+    // pwa.ts imports — without it that import is an unresolved specifier.
+    "types": ["vite/client", "node", "vite-plugin-pwa/client"],
 
     "strict": true,
     "noImplicitOverride": true,

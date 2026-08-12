@@ -11,6 +11,13 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <!--
+      iOS reads NONE of the web app manifest's icons — apple-touch-icon is the
+      only one it will use, so this link is not a duplicate of the manifest.
+      vite-plugin-pwa injects the manifest link itself.
+    -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <!--
       font-display:block means text stays invisible until Archivo arrives, so
       fetch it in parallel with the module graph rather than waiting for the CSS.
     -->
