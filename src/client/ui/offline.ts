@@ -51,15 +51,17 @@ export function mountOffline(root: HTMLElement): () => void {
   const goHotseat = () => {
     location.hash = "#/hotseat";
   };
-  // `route()` re-runs on hashchange and lands on the real screen if the network
-  // came back; if it did not, it lands right back here, which is the honest
-  // answer to "try again".
+  /*
+   * Retry the route you are ON, never a different one.
+   *
+   * ⚠️ This used to send you to `#/`, which quietly threw away the room code —
+   * someone who tapped an invite link with no signal, then retried, landed on
+   * the landing screen with the code gone from the URL and no way back to it
+   * except finding the original message again. A reload re-runs the router
+   * against the same hash, so an invite link survives the round trip.
+   */
   const retry = () => {
-    if (location.hash === "#/" || location.hash === "") {
-      location.reload();
-      return;
-    }
-    location.hash = "#/";
+    location.reload();
   };
 
   const hotseatBtn = root.querySelector<HTMLElement>("#hotseat")!;

@@ -1232,13 +1232,28 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
      * happening, and it would hide a live board behind a logo.
      */
     let startSeq: StartSequence | null = null;
-    if (state.linesPlaced === 0 && state.phase === "playing" && !motionReduced()) {
-      gameEl.classList.add("entering");
-      // Armed for the future: the board stays empty until the mark has landed.
-      renderer.startEntrance(performance.now() + BOARD_START_OFFSET_MS);
+    /*
+     * A game that is actually starting, whether or not it gets a performance.
+     *
+     * ⚠️ **Deliberately NOT gated on `motionReduced()`** — that gate belongs to
+     * the animation below, and only to it. Reduced motion is a statement about
+     * movement, not about sound: folding the announcer into it meant a player
+     * with the preference set never heard "Here we go" in any game, ever, and
+     * never got the per-match cooldown reset either. §12.3 already makes the
+     * rule explicit — a path that skips a sequence must still reach the same
+     * outcome.
+     */
+    const gameIsStarting = state.linesPlaced === 0 && state.phase === "playing";
+    if (gameIsStarting) {
       // A fresh match: the `hurry` cooldown must not carry over from the last
       // one, or the first warning of this game gets eaten by the previous.
       resetVoiceState();
+    }
+
+    if (gameIsStarting && !motionReduced()) {
+      gameEl.classList.add("entering");
+      // Armed for the future: the board stays empty until the mark has landed.
+      renderer.startEntrance(performance.now() + BOARD_START_OFFSET_MS);
       startSeq = playStartSequence({
         stage: gameEl,
         boardMs: entranceDurationMs(n + 1),
@@ -1253,6 +1268,9 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
         },
       });
       stage.requestFrame();
+    } else if (gameIsStarting) {
+      // No sequence to wait for, so the line lands immediately.
+      say("start");
     }
 
     if (import.meta.env.DEV) {

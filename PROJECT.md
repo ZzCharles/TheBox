@@ -52,7 +52,7 @@ icons ARE confirmed visually — they are files, so they can just be looked at.
 
 The PWA: generated icons, manifest, service worker, an offline screen that offers hot seat
 (which genuinely works with no network), and an install prompt after a completed game.
-**§14 is the writeup**, and §14.4 is the part to read before touching the build — two Vite
+**§14 is the writeup**, and §14.5 is the part to read before touching the build — two Vite
 environments, a service worker that must never answer for `/api/*` or `/parties/*`, and no
 `window.__box` in production.
 
@@ -251,7 +251,7 @@ All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twis
 | Twist mode | ✅ Done, with the shrink floor |
 | Screens: landing, settings, lobby, game | ✅ Done — full colour, type and behaviour pass |
 | **Sound** | 🟡 Eight synthesised sounds, 42 tests. `tick` and `click` were recut at M7.5 and **reverted 2026-08-12** — back to a pair a playtest also called not good enough (§13.1). **Still the weakest part of the game.** |
-| **Announcer** | 🟡 Nine recorded lines wired and verified (§13.2). Waiting on the files themselves, plus a draw line and extra `Insanity` takes. |
+| **Announcer** | ✅ Nine recorded lines, in and verified against the real audio (§13.2). Still wanted: a draw line and extra `Insanity` takes. |
 | **Streak callouts** | ✅ Five tiers over the scoreboard, animated fire, embers, and a placeholder voice (§12.4.1) |
 | **Twist burn** | ✅ Done — fuse, ignition, spreading front, flame, ash. 2.6 ms worst frame. |
 | **Start sequence** | ✅ Mark draws, flares, hits, shakes; board rolls in |
@@ -542,9 +542,11 @@ npm test         # rules engine, via node --test (no test dependencies)
 npm run check    # typecheck client and worker projects separately
 npm run build    # check + build both bundles into dist/
 npm run icons    # regenerate the PWA icons from the Tiki mark (§14.1)
+                 # `npm run check` also runs scripts/check-assets.mjs, which fails the
+                 # build if a voice line names a file that is not there IN EXACT CASE (§17)
 npm run types    # regenerate worker-configuration.d.ts after editing wrangler.jsonc
 npm run deploy   # build + wrangler deploy
-npx.cmd vite preview --port 4173   # the ONLY way to test the service worker (§14.4)
+npx.cmd vite preview --port 4173   # the ONLY way to test the service worker (§14.5)
 ```
 
 **Two gotchas worth remembering:**
@@ -564,11 +566,12 @@ Box/
 ├─ PROJECT.md                  ← this file
 ├─ package.json
 ├─ tsconfig.json
-├─ vite.config.ts              ← Cloudflare + PWA. The PWA half is client-only (§14.4)
+├─ vite.config.ts              ← Cloudflare + PWA. The PWA half is client-only (§14.5)
 ├─ wrangler.jsonc              ← Worker + DO bindings + static assets
 ├─ index.html
 ├─ scripts/
-│  └─ make-icons.mjs           ← `npm run icons`. Generates the PNGs. No deps (§14.1)
+│  ├─ make-icons.mjs           ← `npm run icons`. Generates the PNGs. No deps (§14.1)
+│  └─ check-assets.mjs         ← build gate: voice files must exist in EXACT case (§17)
 ├─ public/
 │  ├─ icons/                   ← GENERATED — edit the script, not these
 │  ├─ sfx/voice/               ← the announcer's mp3s. README there names every one
@@ -1499,6 +1502,13 @@ Three things that are load-bearing rather than incidental:
 - **`linesPlaced === 0` gates the whole thing.** It keeps the ceremony away from a spectator
   arriving mid-game and from anyone reconnecting, both of whom mount the same view onto a
   board that is already half played.
+- ⚠️ **`motionReduced()` gates the ANIMATION, and nothing else.** Caught in review
+  2026-08-13: the announcer's "Here we go" and the per-match voice-state reset had been
+  folded inside the same branch, so a player with the preference set never heard the opening
+  line in any game, ever. Reduced motion is a statement about movement, not about sound —
+  and §12.3 already makes the general rule explicit: **a path that skips a sequence must
+  still reach the same outcome.** `gameIsStarting` is now computed once and the two concerns
+  read it separately.
 - **The overlay swallows input** (`pointer-events: auto`) for its 1.3s. The board is empty
   and the HUD is hidden, so a tap falling through would place a line on a board the player
   cannot see, on a turn they do not know is theirs.
@@ -1906,6 +1916,16 @@ Files live in `public/sfx/voice/` and **the filenames are the contract** — the
 `README.md` in that folder listing every one, and dropping a file in is the whole
 integration step.
 
+⚠️ **The filenames are checked at build time, and that check exists because this failure is
+invisible.** Six of the nine arrived on 2026-08-13 with names the code never requests —
+`Nice.mp3` for `nice.mp3`, and `heres-your-winne.mp3` missing its last letter. Since the
+Worker serves assets case-sensitively and answers an unknown path with **`200` + SPA HTML**
+(§17), those five would have fetched "successfully", failed to decode, and gone silent in
+production — while working perfectly on the Windows dev machine, whose filesystem does not
+care about case. `scripts/check-assets.mjs` now reads the URLs straight out of `voice.ts`,
+lists the directory, and compares names as strings; it names the near-miss when it finds one.
+It runs inside `npm run check`, so `npm run build` cannot ship a broken set.
+
 | Key | File | Fires |
 |---|---|---|
 | `Nice` … `Insanity` | `nice/blazing/ruthless/wildfire/insanity.mp3` | The five streak tiers (§12.4) |
@@ -1926,7 +1946,7 @@ actually drove the original synthesis decision. The service worker precaches the
 (`globPatterns` includes `mp3`), because "Here we go" fires the instant a game starts and a
 first-use network fetch would land it in the middle of the opening move.
 
-#### Four things that are load-bearing
+#### Six things that are load-bearing
 
 1. ⚠️ **Voice does NOT go through `play()`.** §13's four-voice cap with oldest-evicted is
    right for a chain of ticks and wrong for speech — a line cut off halfway by the next
@@ -1935,6 +1955,9 @@ first-use network fetch would land it in the middle of the opening move.
    of the line, ramped rather than stepped (a hard gain change on a live bus is an audible
    click — the same artefact the zero-endpoint test guards inside a single sound). Without
    this, "Here's your winner" arrives underneath 144 endgame clacks and is simply not heard.
+   **Whoever cuts a line short owns releasing its duck** — `silence()` calls `releaseDuck()`,
+   because a duck scheduled for a 2s line and cut at 0.2s otherwise leaves the effects at
+   32% for the rest, and the next game starts audibly quiet.
 3. ⚠️ **`hurry` is rationed by a 45s cooldown, and this is not optional.** The 4-second
    warning fires on EVERY slow turn — roughly a hundred times in a twenty-minute game. The
    same two syllables a hundred times is wallpaper, which is the failure §10.5 designed the
@@ -1944,16 +1967,34 @@ first-use network fetch would land it in the middle of the opening move.
    sixteen (§12.4). `VOICE_FILES` holds an ARRAY per key and rotates, so extra takes are a
    filename each. With one take, a twenty-box turn is the same recording six times in four
    seconds.
+5. ⚠️ **`response.ok` is not a sufficient check, and a failure is not always permanent.**
+   `load()` rejects a `text/html` body before decoding, because that is what a wrong
+   filename looks like here (§17). It distinguishes three outcomes rather than one: a real
+   404 or undecodable bytes are cached as **dead** and never retried; a network failure or
+   an HTML body are **transient** and retried next time. That second case is not
+   theoretical — §0.1 records that for ~30 seconds after a deploy even a correct path can
+   return the fallback, and treating that as permanent would silence a line for the whole
+   session over one badly-timed request. An HTML body also logs a warning naming the file,
+   which is the difference between "the announcer is broken" and a five-second fix.
+6. ⚠️ **`say()` takes a generation token before it awaits.** Loads resolve out of order — a
+   cached line returns instantly while an uncached one waits on a fetch — so without it the
+   last line to finish LOADING wins rather than the last one requested, and a 4-box `Nice`
+   could cut off the `Blazing` that had already superseded it. `silence()` bumps the same
+   counter, which is the only thing that can stop a line whose decode is still in flight
+   from starting over a screen that has already torn down.
 
 **A draw is not a win.** §9.1 makes a tie a shared victory, and "here's your winner" is
 wrong for one — so `draw` is its own key. It has no recording yet, and until it does a tie
 gets the fanfare and no voice, which is correct rather than merely tolerable.
 
-**Verified 2026-08-13** in the browser against stubbed files: three `Insanity` calls play
-three times; two `hurry` calls inside the window play once, and a third after
-`resetVoiceState` plays; `draw` is silent rather than falling back to the winner line; muted
-plays nothing and unmuted plays once. The trigger sites were checked separately — starting a
-hot-seat game requests `here-we-go.mp3`, and climbing the ladder requests each tier in order.
+**Verified 2026-08-13, against the real recordings.** All nine lines serve as `audio/mpeg`
+and play; two `say` calls in one tick start only the LAST; `silence()` immediately after a
+`say` starts nothing at all; a `200 text/html` response plays nothing, logs a warning naming
+the file, and the very next attempt succeeds; three `Insanity` calls play three times; two
+`hurry` calls inside the cooldown play once and a third after `resetVoiceState` plays; `draw`
+is silent rather than falling back to the winner line; muted plays nothing. **With
+`prefers-reduced-motion` on, a real two-client game still requests `here-we-go.mp3`** and
+draws no start sequence — the fix for that is in §12.1's note.
 
 ⚠️ **Testing note.** `location.href = origin + '#/...'` does **not** reload the page, so
 module state survives and a probe measures the previous run. Two rounds of confusing zeros
@@ -2028,7 +2069,27 @@ exist for half of them — so iOS gets a one-line instruction (Share → Add to 
 instead. **Text, not a button**: a button that cannot do the thing it names is worse than a
 sentence explaining how.
 
-### 14.4 Build notes that cost time
+### 14.4 An update must never reload a live match
+
+⚠️ **`registerType: "autoUpdate"` reloads the page the moment a new worker activates,
+unless you stop it.** Read the installed `registerSW` if you doubt it: in auto mode it
+listens for `activated` and, with no `onNeedReload` handler, calls
+`window.location.reload()` there and then. Shipping a deploy while someone is playing would
+therefore tear the board out from under them — and the shot clock is server-side and keeps
+running through the reload (§6.3), so a player reloaded on their own turn can lose several
+seconds of it, have a line auto-played against them (§6.3.1), and on a slow connection take
+the second consecutive miss that parks them (§6.4).
+
+So `pwa.ts` passes `onNeedReload`, sets a flag, and **defers the reload until the player is
+somewhere it costs nothing** — anywhere that is not a room or hot seat. The router calls
+`applyPendingReload()` on every navigation, so the update lands the instant they leave the
+game. The new worker already controls the page by then; only the running tab is still on old
+code, which is exactly why it can afford to wait.
+
+⚠️ It is **`onNeedReload`**, not `onNeedRefresh`. The latter is only consulted in non-auto
+mode, so passing it here looks right and changes nothing.
+
+### 14.5 Build notes that cost time
 
 ⚠️ **This build has TWO Vite environments, and a plugin runs in both by default.** Unscoped,
 `VitePWA` wrote a second `manifest.webmanifest` into `dist/box/` — the Worker bundle
@@ -2052,7 +2113,7 @@ the Worker build directory for local preview secrets. It is gitignored, it is **
 `dist/client` (the served asset directory), and `GET /.dev.vars` on the live site returns the
 SPA fallback HTML with zero occurrences of `OWNER_KEY` — checked 2026-08-12.
 
-### 14.5 What is left in M8
+### 14.6 What is left in M8
 
 Only the two things that are not code: **a custom domain** (owner's DNS) and **a playtest
 with 6 real people**.
@@ -2232,7 +2293,7 @@ with 6 real people**.
          Tiki mark's own proportions, with no new dependency. §14.1 — including the two
          ways the first attempt was wrong.
       2. ✅ **Manifest + service worker.** `vite-plugin-pwa` 1.3.0, `autoUpdate`, scoped to
-         the client environment so it stops writing into the Worker bundle. §14.4.
+         the client environment so it stops writing into the Worker bundle. §14.5.
       3. ✅ **Precache + offline screen.** 10 assets precached; the offline screen carries
          the rules and offers hot seat, which genuinely works with no network. Cold-start
          only — a live match keeps its board behind "Reconnecting…". §14.2.
@@ -2335,6 +2396,16 @@ means debugging game logic and network logic simultaneously, which is miserable.
   an IP address, where `crypto.randomUUID`, `crypto.subtle` and `navigator.clipboard` are
   all `undefined` — while `localhost` and the deployed HTTPS build have them, so this class
   of bug never shows up in dev. `crypto.getRandomValues` is fine. (Cost an hour at M5.)
+- **A static asset that does not exist answers `200` with the SPA fallback HTML, not `404` —
+  and asset paths are CASE-SENSITIVE.** Verified against the live Worker on 2026-08-13:
+  `/fonts/Archivo.woff2` → `200 font/woff2`, `/fonts/archivo.woff2` → `200 text/html`.
+  Two consequences, and both have bitten:
+  - **`response.ok` proves nothing about an asset fetch.** Anything loading a file at runtime
+    must check the content type, or it will happily hand HTML to a decoder. §13.2.
+  - **The developer's Windows filesystem is case-insensitive, so a wrong-case asset works
+    perfectly in dev and dies silently in production.** `npm run check` runs
+    `scripts/check-assets.mjs`, which lists the directory and compares names as strings —
+    `fs.existsSync` is useless here for exactly the same reason.
 - Screen mounting is wrapped in try/catch. A throw used to leave the previous screen on
   display, which is indistinguishable from the app hanging.
 - Every message carries a sequence number; the client discards out-of-order/duplicate moves.

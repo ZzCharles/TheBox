@@ -9,6 +9,7 @@ import { wordmark } from "./ui/wordmark.ts";
 import { applyPrefs } from "./net/identity.ts";
 import { initAudio } from "./audio/engine.ts";
 import {
+  applyPendingReload,
   initInstallPrompt,
   isOffline,
   registerServiceWorker,
@@ -31,6 +32,14 @@ let dispose: (() => void) | null = null;
 function route() {
   dispose?.();
   dispose = null;
+
+  /*
+   * Leaving a screen is the moment a deferred app update can land — a new
+   * service worker never reloads the page mid-match (§14.4), so it waits here
+   * for somewhere that costs nothing. Reloads if one is owed, in which case
+   * nothing below runs.
+   */
+  applyPendingReload();
 
   // A throw while mounting used to leave the PREVIOUS screen on display, which
   // looks exactly like the app hanging. Say what happened instead.

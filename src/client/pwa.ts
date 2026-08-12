@@ -24,24 +24,50 @@ import { registerSW } from "virtual:pwa-register";
 // --------------------------------------------------------- service worker ---
 
 /**
+ * True while the player is somewhere a page reload would cost them something.
+ *
+ * A room (lobby or game) and hot seat both qualify. Everything else — landing,
+ * settings, the offline screen — is safe to reload under someone's feet.
+ */
+function inPlay(): boolean {
+  return /^#\/(r\/|hotseat)/.test(location.hash);
+}
+
+/** Set when a new worker has activated and we owe the page a reload. */
+let reloadPending = false;
+
+/**
  * Register, and update in the background.
  *
  * `autoUpdate` matters more here than in most apps: the client and the server
  * share a `PROTOCOL_VERSION` (§7), and a client left on an old bundle does not
- * degrade gracefully — it is told to refresh and cannot play. Silently taking
- * the new version on the next load is the behaviour that keeps that from
- * happening.
+ * degrade gracefully — it is told to refresh and cannot play. Taking the new
+ * version automatically is what keeps that from happening.
  *
- * ⚠️ **`onNeedRefresh` deliberately does nothing.** With `registerType:
- * "autoUpdate"` the new worker activates on its own; a prompt here would ask
- * the player to approve something that has already happened, and asking
- * mid-match is worse than not asking at all.
+ * ⚠️ **`onNeedReload` is passed to STOP workbox reloading the page mid-match.**
+ * This is not a nicety. In `autoUpdate` mode `registerSW` listens for the new
+ * worker activating and, with no handler, calls `window.location.reload()`
+ * there and then — so shipping a deploy while someone is playing tears the
+ * board out from under them. The shot clock is server-side and keeps running
+ * through the reload (§6.3), so a player reloaded on their own turn can lose
+ * several seconds of it, have a line auto-played against them (§6.3.1), and on
+ * a slow connection take the second consecutive miss that parks them (§6.4).
+ *
+ * So the reload is deferred until they are somewhere it costs nothing.
+ * `applyPendingReload` is called by the router on every navigation.
+ *
+ * ⚠️ It is `onNeedReload`, NOT `onNeedRefresh`. The latter is only consulted in
+ * non-auto mode and passing it here would silently change nothing.
  */
 export function registerServiceWorker(): void {
   if (!("serviceWorker" in navigator)) return;
   try {
     registerSW({
       immediate: true,
+      onNeedReload() {
+        reloadPending = true;
+        applyPendingReload();
+      },
       onRegisterError(err: unknown) {
         // Blocked by policy, an insecure origin, or a private window. The game
         // is now simply not installable, which is not worth a broken screen.
@@ -51,6 +77,20 @@ export function registerServiceWorker(): void {
   } catch (err) {
     console.warn("[tiki] service worker registration threw", err);
   }
+}
+
+/**
+ * Take a deferred update if the player is somewhere safe. Call on every route
+ * change; a no-op unless a new worker is genuinely waiting.
+ *
+ * The new worker has already activated and controls the page by this point, so
+ * the running tab is the only thing still on old code — which is exactly why
+ * this can afford to wait for a good moment rather than firing immediately.
+ */
+export function applyPendingReload(): void {
+  if (!reloadPending || inPlay()) return;
+  reloadPending = false;
+  location.reload();
 }
 
 // ---------------------------------------------------------------- offline ---

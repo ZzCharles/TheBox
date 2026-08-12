@@ -171,12 +171,12 @@ export function soundReady(): boolean {
 }
 
 /**
- * The mute preference, for audio that does not go through this engine.
+ * The mute preference, for audio that does not go through `play()`.
  *
- * `voice.ts` speaks through the platform synthesiser rather than the
- * AudioContext, so it cannot be gated by `play()` — but it must obey the same
- * toggle, and reading it from here rather than from `prefs()` keeps one answer
- * to "is this game making noise" instead of two that can disagree the moment
+ * `voice.ts` shares this context and this output stage (see the voice section
+ * below) but plays its own sources, so `play()`'s mute check never sees them.
+ * Reading the flag from here rather than from `prefs()` keeps one answer to
+ * "is this game making noise" instead of two that can disagree the moment
  * Settings changes it.
  */
 export function soundEnabled(): boolean {
@@ -224,6 +224,27 @@ export function duckSfx(seconds: number): void {
     gain.linearRampToValueAtTime(DUCK_TO, now + DUCK_RAMP_SECONDS);
     gain.setValueAtTime(DUCK_TO, now + Math.max(seconds, DUCK_RAMP_SECONDS));
     gain.linearRampToValueAtTime(1, now + Math.max(seconds, DUCK_RAMP_SECONDS) + 0.18);
+  } catch {
+    /* see rule 2 */
+  }
+}
+
+/**
+ * Bring the effects straight back up, cancelling a duck still in flight.
+ *
+ * A duck is scheduled for the length of the line that asked for it, so a line
+ * cut short leaves the effects sitting at 32% for the remainder — long enough
+ * that the next game starts audibly quiet. Whoever cuts a line short owns
+ * releasing its duck.
+ */
+export function releaseDuck(): void {
+  if (!ctx || !sfxBus) return;
+  try {
+    const now = ctx.currentTime;
+    const gain = sfxBus.gain;
+    gain.cancelScheduledValues(now);
+    gain.setValueAtTime(gain.value, now);
+    gain.linearRampToValueAtTime(1, now + DUCK_RAMP_SECONDS);
   } catch {
     /* see rule 2 */
   }

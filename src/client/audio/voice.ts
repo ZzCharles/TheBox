@@ -28,7 +28,13 @@
  *    talking into the next player's turn.
  */
 
-import { audioContext, duckSfx, soundEnabled, voiceDestination } from "./engine.ts";
+import {
+  audioContext,
+  duckSfx,
+  releaseDuck,
+  soundEnabled,
+  voiceDestination,
+} from "./engine.ts";
 
 /**
  * Every line the game can speak.
@@ -101,13 +107,32 @@ const VOICE_GAIN: Partial<Record<VoiceKey, number>> = {
 const HURRY_COOLDOWN_MS = 45_000;
 
 const decoded = new Map<string, AudioBuffer>();
-/** Files that failed once. Never retried — a 404 does not become a 200. */
+/**
+ * Files that are definitively not audio — a 404, or a body that came back as
+ * HTML. Never retried, because that answer will not change.
+ *
+ * ⚠️ **A network failure does NOT go in here.** That distinction is the whole
+ * point: this Worker serves the SPA fallback for unknown paths, so "the file is
+ * wrong" and "the network hiccuped" both surface as a failed decode, and
+ * treating the second as permanent means one dropped request silences a line
+ * for the rest of the session.
+ */
 const dead = new Set<string>();
 /** Next take to use, per key, so repeats rotate rather than repeat. */
 const rotation = new Map<VoiceKey, number>();
 
 let current: AudioBufferSourceNode | null = null;
 let lastHurryAt = 0;
+/**
+ * Increments on every `say` and every `silence`.
+ *
+ * Loads resolve out of order — a cached line returns instantly while an
+ * uncached one waits on a fetch — so without a token the LAST line to finish
+ * loading wins rather than the last one requested, and a 4-box "Nice" can cut
+ * off the "Blazing" that overtook it. Captured before the await, re-checked
+ * after; a stale token means someone else has spoken since, so drop it.
+ */
+let generation = 0;
 
 /** Pick the next take for a key, skipping any that have already failed. */
 function nextFile(key: VoiceKey): string | null {
@@ -124,15 +149,43 @@ async function load(url: string): Promise<AudioBuffer | null> {
   const ctx = audioContext();
   if (!ctx) return null;
 
+  let response: Response;
   try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(String(response.status));
+    response = await fetch(url);
+  } catch {
+    // Transport failure — offline, aborted, DNS. Says nothing about the file,
+    // so do NOT mark it dead; the next chain can try again.
+    return null;
+  }
+
+  /*
+   * ⚠️ **`response.ok` is not enough on this deployment.** The Worker answers an
+   * unknown asset path with the SPA fallback — `index.html`, at status **200**.
+   * A misnamed file therefore arrives looking like a success, and only fails
+   * later inside `decodeAudioData` where the reason is unrecoverable.
+   *
+   * §0.1 records the same shape biting a deploy: for ~30 seconds after shipping,
+   * even a CORRECT path can transiently return the fallback. So HTML is treated
+   * as "not this time" rather than "never" — permanent death is reserved for a
+   * real 404, and for bytes that are genuinely not decodable audio.
+   */
+  const type = response.headers.get("content-type") ?? "";
+  if (type.includes("text/html")) {
+    console.warn(`[tiki] ${url} returned HTML, not audio — wrong filename, or a fresh deploy`);
+    return null;
+  }
+  if (!response.ok) {
+    dead.add(url);
+    return null;
+  }
+
+  try {
     const buffer = await ctx.decodeAudioData(await response.arrayBuffer());
     decoded.set(url, buffer);
     return buffer;
   } catch {
-    // Missing, blocked, or not decodable on this platform. Remember, so a line
-    // that cannot play does not re-request on every single chain.
+    // Real bytes that this platform will not decode. That will not change on a
+    // retry, so remember it and stop asking.
     dead.add(url);
     return null;
   }
@@ -157,7 +210,14 @@ export function say(key: VoiceKey): void {
   const url = nextFile(key);
   if (!url) return;
 
+  // Claimed BEFORE the await. Anything that speaks or silences after this point
+  // bumps the counter and this line is abandoned — which is what stops a slow
+  // "Nice" from overtaking the "Blazing" that superseded it, and what stops a
+  // line begun on the last box of a game from starting after teardown.
+  const mine = ++generation;
+
   void load(url).then((buffer) => {
+    if (mine !== generation) return;
     if (!buffer || !soundEnabled()) return;
     const ctx = audioContext();
     const destination = voiceDestination();
@@ -203,7 +263,16 @@ function stop(): void {
  * on talking over the lobby.
  */
 export function silence(): void {
+  // Bumping the generation is the half that matters: `stop()` can only cut a
+  // line that is already playing, and the one that bites is the line still
+  // waiting on its decode, which would otherwise start over the screen that
+  // just tore down.
+  generation++;
   stop();
+  // A duck outlives the line it was scheduled for. Cutting a 2s line at 0.2s
+  // would otherwise leave the effects at 32% for the remaining 1.8s, and the
+  // first ticks of the next game arrive noticeably quiet.
+  releaseDuck();
 }
 
 /**
