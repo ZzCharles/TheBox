@@ -2,10 +2,10 @@
 
 > **Name:** **Tiki** (was BOX; renamed 2026-08-02).
 > **What:** Mobile-first PWA. Real-time multiplayer Dots and Boxes for 2–8 players, with a "Twist mode."
-> **Status:** **M0–M8 built.** The game is finished and installable. All that remains is a
+> **Status:** **M0–M8 built, deployed and pushed.** The game is finished, installable, and
+> has an announcer. Live, `main` and `origin/main` are all level. All that remains is a
 > custom domain (owner's DNS) and a playtest with six people — neither is code.
-> ⚠️ **M8 is committed but NOT DEPLOYED; live is a version behind (§0.1).**
-> **Last updated:** 2026-08-12
+> **Last updated:** 2026-08-13
 
 ---
 
@@ -31,22 +31,36 @@ This file stays the engineering reference.
 
 ---
 
-## 0.1 START HERE — handoff, 2026-08-12
+## 0.1 START HERE — handoff, 2026-08-13
 
-**M7.5 is done bar one design decision. ⚠️ The newest work is NOT deployed.** `main` carries
-the 2026-08-12 playtest fixes; the live site is still on `6b38234a` from 2026-08-10. 176
-tests pass — four fewer than the 180 this file used to claim, because the `tick`/`click`
-character tests were reverted with the sounds they guarded (§13.1).
+**The game is code-complete, and live, `main` and `origin/main` are all level.** 176 tests
+pass — four fewer than the 180 this file used to claim, because the `tick`/`click` character
+tests were reverted with the sounds they guarded (§13.1). Nothing is held back and nothing is
+uncommitted.
 
 ### The next step, in one line
 
-**Deploy, then install it on a phone and play.** Two batches landed on 2026-08-12 — the
-playtest fixes and then the whole of M8 — and **the game is now feature-complete**. Nothing
-remains in code: only a custom domain (owner's DNS) and a six-person playtest.
+**Install it on a phone and play it with people.** Everything left is a judgement only
+playing can make, plus a custom domain (owner's DNS). No feature work remains.
 
-⚠️ **Almost none of it has been seen by a human.** The preview pane does not composite, so
-no screenshot of the streak callout, the flames or the endgame exists (see the gotchas). The
-icons ARE confirmed visually — they are files, so they can just be looked at.
+⚠️ **Almost none of it has been seen or heard by a human.** The preview pane does not
+composite, so no screenshot of the streak callout, the flames or the endgame exists (see the
+gotchas), and nobody has listened to the announcer in a real game — only verified that the
+right file plays at the right moment. The icons ARE confirmed visually; they are files.
+
+What to judge while playing, all one-liners to change:
+
+| Question | Where |
+|---|---|
+| Does "Tick-tick" grate? It is rationed to once per 45s, and that number is a guess. | `HURRY_COOLDOWN_MS` |
+| Are the voice levels right against the effects? | `VOICE_GAIN` |
+| Do the streak tiers fire at the right rate — and is `Insanity` at 16 ever reachable? | `STREAK_TIERS` |
+| Does the doubled endgame clock feel right? | `ENDGAME_CLOCK_*`, §16 #6 |
+| Is the Wildcard reachable enough to matter? | `WILDCARD_COST`, §16 #3 |
+
+Still wanted from the owner: **a draw line** (§13.2 — "here's your winner" is wrong for a
+tie) and **two or three more `Insanity` takes**, since that rung re-fires on every box past
+sixteen and one recording will loop audibly.
 
 ### M8 landed too, 2026-08-12
 
@@ -71,14 +85,8 @@ enough."* The owner asked for it after hearing the recut in a real game, which b
 earlier verdict — but nobody should be surprised when the old complaint returns, and §13.1's
 method note is what to reach for when it does.
 
-Three things are waiting on the owner PLAYING rather than on code. None blocks M8; each is a
-one-line change when the answer arrives:
-
-| Question | Where | The one line |
-|---|---|---|
-| Does the doubled endgame clock feel right? Decides whether the parked host off-switch is ever needed. | §16 #6 | `ENDGAME_CLOCK_*` |
-| Do the streak tiers fire at the right rate — including whether **Insanity at 16** is reachable at all? | §12.4.1 | `STREAK_TIERS` |
-| Is the Wildcard reachable enough to matter? Ten boxes cannot be banked until ~turn 93 of 132. | §10.6 | `WILDCARD_COST` |
+*(The open questions these left are collected in the START HERE table above, so there is one
+list rather than two that drift apart.)*
 
 ### Deploy history
 
@@ -87,7 +95,9 @@ one-line change when the answer arrives:
 | `f1d86651` | Timeout auto-move (§6.3.1), doubled endgame clock (§6.3.2), confirm-tap |
 | `a8660bb2` | The `[hidden]` fix (§10.6), `tick` and `click` recut (§13.1) |
 | `2d2bb6e1` | Board size in hot seat |
-| `6b38234a` | Streak callouts (§12.4.1) — **live, and now one version behind `main`** |
+| `6b38234a` | Streak callouts (§12.4.1) |
+| `d9d9f2d7` | The 2026-08-12 playtest fixes, all of M8, and the announcer |
+| `74a2ded5` | Naming note out of `public/` — **current, and level with `main`** |
 
 ### Five things that will bite you if you do not know them
 
