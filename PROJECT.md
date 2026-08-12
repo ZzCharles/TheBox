@@ -574,7 +574,8 @@ Box/
 │  └─ check-assets.mjs         ← build gate: voice files must exist in EXACT case (§17)
 ├─ public/
 │  ├─ icons/                   ← GENERATED — edit the script, not these
-│  ├─ sfx/voice/               ← the announcer's mp3s. README there names every one
+│  ├─ sfx/voice/               ← the announcer's mp3s. Named in docs/voice-lines.md
+│  │                             ⚠️ everything under public/ is PUBLISHED
 │  └─ fonts/                   ← Archivo, self-hosted
 └─ src/
    ├─ shared/                  ← imported by BOTH client and server. No DOM, no Workers APIs.
@@ -1912,9 +1913,12 @@ have passed the sound that failed, which is the entire point of writing it.
 ### 13.2 The announcer — recorded, 2026-08-13
 
 Nine spoken lines, produced by the owner in ElevenLabs. `src/client/audio/voice.ts`.
-Files live in `public/sfx/voice/` and **the filenames are the contract** — there is a
-`README.md` in that folder listing every one, and dropping a file in is the whole
-integration step.
+Files live in `public/sfx/voice/` and **the filenames are the contract** —
+`docs/voice-lines.md` lists every one, and dropping a file in is the whole integration step.
+
+⚠️ **That note is in `docs/`, not beside the audio, because everything in `public/` is
+published.** A README next to the files was served at `/sfx/voice/README.md` on the live
+site until 2026-08-13. Nothing goes in `public/` that is not meant for players.
 
 ⚠️ **The filenames are checked at build time, and that check exists because this failure is
 invisible.** Six of the nine arrived on 2026-08-13 with names the code never requests —

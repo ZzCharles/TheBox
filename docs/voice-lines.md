@@ -1,8 +1,20 @@
 # Announcer lines
 
-Drop the ElevenLabs `.mp3` files here, named **exactly** as below. The code
-already looks for these paths — nothing needs wiring when a file appears, and a
-file that is missing is simply silent (`src/client/audio/voice.ts`).
+Drop the ElevenLabs `.mp3` files in **`public/sfx/voice/`**, named **exactly** as
+below. The code already looks for these paths — nothing needs wiring when a file
+appears, and a file that is missing is simply silent
+(`src/client/audio/voice.ts`).
+
+> This note lives in `docs/` rather than beside the audio because **everything
+> in `public/` is published**. A README next to the files was being served at
+> `/sfx/voice/README.md` on the live site.
+
+⚠️ **Exact case matters, and getting it wrong fails silently in production.**
+The Worker serves assets case-sensitively and answers an unknown path with
+`200` + the app's HTML rather than a 404, so `Nice.mp3` where the code wants
+`nice.mp3` "loads" fine and then goes quiet — while working perfectly on
+Windows, whose filesystem ignores case. `npm run check` runs
+`scripts/check-assets.mjs`, which catches exactly this and names the near-miss.
 
 | File | Line | Fires when |
 |---|---|---|
