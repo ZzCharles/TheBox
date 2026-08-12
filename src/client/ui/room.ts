@@ -44,7 +44,14 @@ import { play } from "../audio/engine.ts";
 import { resetVoiceState, say } from "../audio/voice.ts";
 import { exposeDebug } from "../devtools.ts";
 import { attachPointer } from "../input/pointer.ts";
-import { clientId, motionReduced, ownerKey, prefs, storedName } from "../net/identity.ts";
+import {
+  clientId,
+  motionReduced,
+  ownerKey,
+  prefs,
+  rememberOwnerVerdict,
+  storedName,
+} from "../net/identity.ts";
 import { connect, type Net, type NetStatus } from "../net/socket.ts";
 import {
   createBoardRenderer,
@@ -106,18 +113,41 @@ export function mountRoom(root: HTMLElement, code: string): () => void {
     },
   });
 
+  /**
+   * Adopt a room snapshot. Shared by `welcome` and `room`, which carry the
+   * same payload — a named function rather than a switch fallthrough, because
+   * `noFallthroughCasesInSwitch` is on and it is right to be.
+   */
+  function takeSnapshot(next: RoomSnapshot) {
+    room = next;
+    // A fresh snapshot always wins over locally replayed state, and any
+    // in-flight tween describes a board that may no longer exist.
+    state = next.game ? fromSnapshot(next.game) : null;
+    resetAnimations?.();
+  }
+
   function handle(msg: ServerMessage) {
     switch (msg.t) {
       // Whether we are playing or spectating is derived from the roster in
       // these snapshots, never tracked separately — one source of truth cannot
       // disagree with itself.
       case "welcome":
+        /*
+         * The server's verdict on our owner key — the only place it can come
+         * from. Recorded rather than acted on: nothing here grants a privilege,
+         * the server decides that on every connection. Settings reads it so it
+         * can stop claiming this device hosts every room when it does not.
+         */
+        rememberOwnerVerdict(msg.ownerAccepted);
+        // Only on a definite "no". Silence from an older Worker is not a no.
+        if (ownerKey() && msg.ownerAccepted === false) {
+          toast("That owner key wasn't accepted — check it in Settings");
+        }
+        takeSnapshot(msg.room);
+        break;
+
       case "room":
-        room = msg.room;
-        // A fresh snapshot always wins over locally replayed state, and any
-        // in-flight tween describes a board that may no longer exist.
-        state = msg.room.game ? fromSnapshot(msg.room.game) : null;
-        resetAnimations?.();
+        takeSnapshot(msg.room);
         break;
 
       case "move":

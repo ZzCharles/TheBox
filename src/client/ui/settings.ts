@@ -13,12 +13,50 @@ import {
   canVibrate,
   forgetDevice,
   ownerKey,
+  ownerVerdict,
   prefs,
   rememberName,
   rememberOwnerKey,
   savePrefs,
   storedName,
 } from "../net/identity.ts";
+
+/**
+ * What the owner row says, and it must only ever say what is TRUE.
+ *
+ * ⚠️ **This row used to claim "This device hosts every room" the moment any
+ * string was typed** — including a wrong one. The server was never fooled
+ * (`isOwnerKey` checks the key against a Worker secret and a wrong key grants
+ * nothing), but the person typing it was, and they had no way to find out.
+ *
+ * The client cannot check a key on its own, and must not pretend to. It can
+ * only report what the server last said, which arrives on `welcome` and is
+ * cached by `rememberOwnerVerdict`. Until a connection has actually happened
+ * the honest answer is "not checked yet".
+ */
+function ownerStatusText(): string {
+  if (!ownerKey()) return "Not set";
+  switch (ownerVerdict()) {
+    case "accepted":
+      return "Verified — this device hosts every room";
+    case "rejected":
+      return "That key was rejected. Tap to change it";
+    default:
+      return "Saved — checked when you next join a room";
+  }
+}
+
+function ownerStatusChevron(): string {
+  if (!ownerKey()) return "+";
+  switch (ownerVerdict()) {
+    case "accepted":
+      return "✓";
+    case "rejected":
+      return "✕";
+    default:
+      return "…";
+  }
+}
 
 export function mountSettings(root: HTMLElement): () => void {
   let showingRules = false;
@@ -73,9 +111,9 @@ export function mountSettings(root: HTMLElement): () => void {
           ${showingRules ? `<div class="row rules">${RULES}</div>` : ""}
           <button class="row row-btn" id="owner">
             <span class="k">Owner device
-              <em class="sub">${ownerKey() ? "This device hosts every room" : "Not set"}</em>
+              <em class="sub">${ownerStatusText()}</em>
             </span>
-            <span class="chev">${ownerKey() ? "✓" : "+"}</span>
+            <span class="chev">${ownerStatusChevron()}</span>
           </button>
           <button class="row row-btn" id="forget">
             <span class="k danger">Forget this device</span>
@@ -156,8 +194,11 @@ export function mountSettings(root: HTMLElement): () => void {
       if (entered === null) return;
       rememberOwnerKey(entered);
       render();
+      // ⚠️ NOT "you'll host any room you're in" — that was a promise this
+      // screen is in no position to make. The key is checked by the server on
+      // the next connection, and the row reports whatever it says then.
       root.querySelector<HTMLElement>("#status")!.textContent = entered.trim()
-        ? "Saved. You'll host any room you're in."
+        ? "Saved. It'll be checked when you next join a room."
         : "";
     });
 

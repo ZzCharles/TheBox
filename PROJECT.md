@@ -109,8 +109,8 @@ list rather than two that drift apart.)*
    A hardcoded 12 in `clockFraction` is exactly how the countdown ring broke once already.
 4. **Setting `display` on a component used to break `hidden` for it.** `base.css` now carries
    a global `[hidden] { display: none !important }`. Do not remove it; §10.6 is the story.
-5. **`PROTOCOL_VERSION` is 4.** Bump it whenever a wire type changes shape; mismatched
-   clients are told to refresh.
+5. **`PROTOCOL_VERSION` is 5.** Bump it whenever a wire type changes shape; mismatched
+   clients are told to refresh. 5 added `ownerAccepted` to `welcome` (§6.5).
 
 ### How to verify a deploy, learned the hard way
 
@@ -878,6 +878,34 @@ change". Retyping it every session is pure friction for a game played with the s
 **The owner always hosts.** A device holding the owner key takes the host role the moment it
 connects, whatever the join order; otherwise the first player in hosts, as before.
 
+⚠️ **The UI used to lie about this, and the lie is what got reported** (2026-08-13: *"any
+device is able to set ownerkey"*). Settings saved whatever string was typed and immediately
+announced *"This device hosts every room"* — for **any** string. The **server was never
+fooled**: `isOwnerKey` compares against the Worker secret, and a wrong key grants nothing.
+Verified against a live room — a near-miss key and a wrong-case key are both refused, and
+neither takes host from the player already there. So this was never an authorisation hole;
+it was the client asserting something only the server can know.
+
+**The fix is that the client stops guessing.** `welcome` now carries `ownerAccepted`, the
+server's verdict on the key that connection sent, and Settings reports it: *Not set* /
+*Saved — checked when you next join a room* / *Verified* / *That key was rejected*. Changing
+the key clears the stored verdict, so a new key never inherits the old one's tick.
+
+- ⚠️ `ownerVerdict()` is a **cache of a server answer, never a claim.** Nothing reads it to
+  grant a privilege — the server decides that on every connection, every time. If it is ever
+  used as an input to a permission, that is the bug this section exists to prevent.
+- ⚠️ Only a literal `false` counts as a rejection. A **missing** field means an older Worker
+  (possible for ~30s after a deploy, §0.1), and "no answer" must never render as "wrong key".
+- The verdict is sent **only to the connection that sent the key.** Who holds the owner key
+  is nobody else's business; the roster already shows who is hosting.
+
+**On the key itself.** It is a shared secret typed once per device and compared server-side —
+appropriate for "I always host", and not protecting anything but the host role. Two things
+worth knowing: it is only as strong as its length (it is typed once, so it can afford to be
+long), and it is **only ever set with `wrangler secret put`** — it must never appear in the
+repo, in this file, or in `PROJECT.md`'s history. `.dev.vars` holds the local copy and is
+gitignored.
+
 - The key lives in `localStorage` on the owner's device, entered once.
 - It is sent with every `hello` and checked against the `OWNER_KEY` Worker secret, so the
   key itself never appears in the shipped code.
@@ -931,7 +959,7 @@ state all ride on `room`, and a shrink rides on the `move` that caused it. Corre
 
 | `t` | Payload |
 |---|---|
-| `welcome` | `you, serverNow, room` |
+| `welcome` | `you, serverNow, room, ownerAccepted` — the last is the server's verdict on this connection's owner key, and the ONLY way the client can know it (§6.5) |
 | `room` | `room: RoomSnapshot, serverNow` — roster, phase, config, rematch votes |
 | `move` | `playerIndex, lineId, claimed[], scores[], again, wildcardFired, auto, benched, gameOver, winners[], shrink, serverNow, turn` |
 | `skip` | `playerIndex, reason: timeout\|disconnect, benched, paused, gameOver, winners[], shrink, serverNow, turn` |

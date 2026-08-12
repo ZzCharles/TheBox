@@ -4,8 +4,17 @@
  * Anything a playtest might want to change lives here and nowhere else.
  */
 
-/** Bump whenever a wire type changes shape. Mismatched clients are told to refresh. */
-export const PROTOCOL_VERSION = 4;
+/**
+ * Bump whenever a wire type changes shape. Mismatched clients are told to refresh.
+ *
+ * 5 (2026-08-13) — `welcome` carries `ownerAccepted`. Additive and server→client,
+ * so an OLD client would simply ignore it — but a NEW client against an old
+ * Worker would read it as `undefined` and tell the owner their key had been
+ * rejected. That window is real: §0.1 records that assets and the Worker do not
+ * propagate in step for ~30s after a deploy. Bumping turns a confident wrong
+ * answer into an honest "refresh to update".
+ */
+export const PROTOCOL_VERSION = 5;
 
 // ---------------------------------------------------------------- timing ---
 

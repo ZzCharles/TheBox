@@ -363,6 +363,10 @@ export class GameRoom extends Server<Env> {
       you: msg.clientId,
       serverNow: Date.now(),
       room: this.snapshot(room),
+      // The verdict on the key this connection sent. Only ever told to the
+      // connection that sent it — whether someone else holds the owner key is
+      // nobody's business, and the roster already shows who is hosting.
+      ownerAccepted: owns,
     });
     this.broadcastRoom(connection.id);
   }

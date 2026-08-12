@@ -6,6 +6,8 @@
 const CLIENT_ID_KEY = "box.clientId";
 const NAME_KEY = "box.name";
 const OWNER_KEY = "box.ownerKey";
+/** The server's last verdict on that key. A cache of an answer, not a claim. */
+const OWNER_VERDICT_KEY = "box.ownerVerdict";
 const PREFS_KEY = "box.prefs";
 
 /*
@@ -67,6 +69,41 @@ export function rememberOwnerKey(key: string): void {
   const trimmed = key.trim();
   if (trimmed) localStorage.setItem(OWNER_KEY, trimmed);
   else localStorage.removeItem(OWNER_KEY);
+  // A new key has never been checked. Clearing the verdict is what stops
+  // Settings showing a stale ✓ from the previous key against the new one.
+  localStorage.removeItem(OWNER_VERDICT_KEY);
+}
+
+/**
+ * What the server said about this device's owner key, last time it connected.
+ *
+ * ⚠️ **This is a cache of a SERVER answer, never a claim.** It exists so
+ * Settings can tell the truth — the client has no way to check a key itself,
+ * and the version that pretended otherwise told anyone who typed anything that
+ * they were the owner. Nothing reads this to grant a privilege; the server
+ * decides that on every connection, every time.
+ */
+export type OwnerVerdict = "unverified" | "accepted" | "rejected";
+
+export function ownerVerdict(): OwnerVerdict {
+  if (!ownerKey()) return "unverified";
+  const stored = localStorage.getItem(OWNER_VERDICT_KEY);
+  return stored === "accepted" || stored === "rejected" ? stored : "unverified";
+}
+
+/**
+ * Record what the server said. Called on `welcome`, which carries the verdict.
+ *
+ * ⚠️ Only a real `false` counts as a rejection. A missing field means we are
+ * talking to a Worker that predates it (possible for ~30s after a deploy,
+ * §0.1), and "I did not hear an answer" must never be shown as "your key is
+ * wrong" — the whole point of this is that the UI stops asserting things it
+ * does not know.
+ */
+export function rememberOwnerVerdict(accepted: boolean | undefined): void {
+  if (!ownerKey()) return;
+  if (typeof accepted !== "boolean") return;
+  localStorage.setItem(OWNER_VERDICT_KEY, accepted ? "accepted" : "rejected");
 }
 
 // ------------------------------------------------------------ preferences ---
@@ -151,7 +188,7 @@ export function motionReduced(): boolean {
 
 /** Everything this device remembers. Used by "forget this device" in Settings. */
 export function forgetDevice(): void {
-  for (const key of [CLIENT_ID_KEY, NAME_KEY, OWNER_KEY, PREFS_KEY]) {
+  for (const key of [CLIENT_ID_KEY, NAME_KEY, OWNER_KEY, OWNER_VERDICT_KEY, PREFS_KEY]) {
     localStorage.removeItem(key);
   }
 }

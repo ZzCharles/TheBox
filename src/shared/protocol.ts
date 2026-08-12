@@ -131,6 +131,20 @@ export type ServerMessage =
       /** Server clock at send time, so the client can estimate its offset. */
       serverNow: number;
       room: RoomSnapshot;
+      /**
+       * Whether the `ownerKey` sent with `hello` was actually accepted.
+       *
+       * ⚠️ **The client cannot work this out for itself, and used to pretend it
+       * could.** Settings saved whatever string was typed and immediately
+       * announced "This device hosts every room" — for any string, including a
+       * wrong one. The SERVER was never fooled (`isOwnerKey` compares against
+       * the Worker secret and a wrong key grants nothing), but the person
+       * typing it was: they were told they were the owner and were not.
+       *
+       * `false` here means either no key was sent, or the one sent was wrong.
+       * The client tells the two apart by whether it holds a key at all.
+       */
+      ownerAccepted: boolean;
     }
   | { t: "room"; room: RoomSnapshot; serverNow: number }
   | {
