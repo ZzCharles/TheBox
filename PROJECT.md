@@ -33,22 +33,31 @@ This file stays the engineering reference.
 
 ## 0.1 START HERE — handoff, 2026-08-13
 
-**The game is code-complete, and live, `main` and `origin/main` are all level.** 176 tests
-pass — four fewer than the 180 this file used to claim, because the `tick`/`click` character
-tests were reverted with the sounds they guarded (§13.1). Nothing is held back and nothing is
-uncommitted.
+**The game is code-complete. Live, `main` and `origin/main` are all level, and there is
+nothing uncommitted.** 176 tests pass — four fewer than the 180 this file used to claim,
+because the `tick`/`click` character tests were reverted with the sounds they guarded
+(§13.1). Current deploy is **`d5d909a4`**; `PROTOCOL_VERSION` is **5**.
 
 ### The next step, in one line
 
-**Install it on a phone and play it with people.** Everything left is a judgement only
-playing can make, plus a custom domain (owner's DNS). No feature work remains.
+**Play it with people.** No feature work remains. Everything left is either a judgement only
+playing can make, a recording only the owner can produce, or a custom domain (owner's DNS).
 
 ⚠️ **Almost none of it has been seen or heard by a human.** The preview pane does not
 composite, so no screenshot of the streak callout, the flames or the endgame exists (see the
 gotchas), and nobody has listened to the announcer in a real game — only verified that the
 right file plays at the right moment. The icons ARE confirmed visually; they are files.
 
-What to judge while playing, all one-liners to change:
+### Waiting on the owner, not on code
+
+| # | What | Where |
+|---|---|---|
+| 1 | **A draw voice line.** A tie is a real outcome (§9.1) and "here's your winner" is wrong for one. The `draw` key exists and is wired; until a file lands, a tie gets the fanfare and no voice. | `docs/voice-lines.md` |
+| 2 | **Two or three more `Insanity` takes.** That rung re-fires on every box past sixteen, so one recording loops audibly. `VOICE_FILES` already rotates an array — extra takes are a filename each. | §13.2 |
+| 3 | **Rotate `OWNER_KEY`.** The current value was pasted into a chat transcript on 2026-08-13. It is typed once per device, so it can afford to be long. `npx.cmd wrangler secret put OWNER_KEY` — never in a file. | §6.5 |
+| 4 | **Confirm a CORRECT owner key shows "Verified ✓".** Every WRONG-key path is verified against the live server (§6.5); the positive case needs the real key and so was never run. | §6.5 |
+
+### Judgements that need a real game, all one-liners to change
 
 | Question | Where |
 |---|---|
@@ -57,6 +66,7 @@ What to judge while playing, all one-liners to change:
 | Do the streak tiers fire at the right rate — and is `Insanity` at 16 ever reachable? | `STREAK_TIERS` |
 | Does the doubled endgame clock feel right? | `ENDGAME_CLOCK_*`, §16 #6 |
 | Is the Wildcard reachable enough to matter? | `WILDCARD_COST`, §16 #3 |
+| Is `tick`/`click` still not good enough? Both versions have now been rejected in play. | §13.1, and read the method note before guessing a third time |
 
 Still wanted from the owner: **a draw line** (§13.2 — "here's your winner" is wrong for a
 tie) and **two or three more `Insanity` takes**, since that rung re-fires on every box past
@@ -97,7 +107,8 @@ list rather than two that drift apart.)*
 | `2d2bb6e1` | Board size in hot seat |
 | `6b38234a` | Streak callouts (§12.4.1) |
 | `d9d9f2d7` | The 2026-08-12 playtest fixes, all of M8, and the announcer |
-| `74a2ded5` | Naming note out of `public/` — **current, and level with `main`** |
+| `74a2ded5` | Naming note out of `public/` |
+| `d5d909a4` | Owner key: the client stops claiming what only the server knows (§6.5). `PROTOCOL_VERSION` → 5 — **current, and level with `main`** |
 
 ### Five things that will bite you if you do not know them
 
@@ -269,8 +280,8 @@ All rules, real-time multiplayer, lobby, reconnect, spectators, rematch and twis
 | **PWA / installable** | ✅ Manifest, service worker, generated icons, offline screen, install prompt (§14) |
 | **Deployed** | ✅ https://box.charlesbobby253.workers.dev |
 
-**Live since 2026-07-31. Redeployed 2026-08-10 with M7, then four more times the same day**
-— the deploy table is in §0.1; the current version is **`6b38234a`**. Verified against the
+**Live since 2026-07-31**, and redeployed many times since — the deploy table is in §0.1 and
+**the current version is `d5d909a4`** (2026-08-13). Verified against the
 deployed site, not just dev: room creation, code lookup, two WebSocket clients joining, a
 move propagating to both, and a **28 ms median round-trip**; for the auto-move, a live room
 left to time out — line placed, both clients in step, second miss parking the player; for
@@ -288,6 +299,33 @@ Two things only the real deploy revealed:
   environment; see the secure-context invariant in §17.
 
 ### Playtest log
+
+- **2026-08-13, real phones on the deployed build.** One report, and it is a useful one
+  because the diagnosis was the opposite of the complaint.
+
+  🔴 **"Any device is able to set ownerkey. I tried a wrong code on the phones and it still
+  says this device will host. Either we remove that option, or it has to reject wrong
+  codes."**
+
+  **Wrong codes were already being rejected.** `isOwnerKey` has always compared against the
+  `OWNER_KEY` Worker secret, and the secret was set in production. Proved against the live
+  server with three phones connected at once claiming `hunter2`, a one-character-short
+  near-miss, and a wrong-case variant: all three got `ownerAccepted: false`, and **host
+  stayed with the player already in the lobby.** Nobody could ever have stolen it.
+
+  What was broken is that **Settings said otherwise.** It saved any string and immediately
+  announced *"This device hosts every room"* with a tick — for a wrong key exactly as
+  readily as the right one. The verdict was never sent to the client at all, so the person
+  typing it had no way to find out. §6.5 is the writeup.
+
+  ⚠️ **The lesson is bigger than this feature: a UI that asserts a server-side fact it has
+  not been told is indistinguishable from a security hole**, and gets reported as one. The
+  fix was to send the answer (`ownerAccepted` on `welcome`) and have the screen report it,
+  not to add a check the client is in no position to make.
+
+  ⚠️ **A second, quieter lesson:** the first thing the owner saw after the fix was committed
+  was *"it still says this device will host"* — because **it had not been deployed.** A
+  commit is not a fix from the phone's point of view. Ship before asking anyone to re-test.
 
 - **2026-08-12, hot seat on the deployed build.** Four reports, all actioned the same day.
   The most valuable one is the freeze, because it is the first hard *fault* found in single
